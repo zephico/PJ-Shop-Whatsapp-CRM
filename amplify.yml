@@ -7,6 +7,7 @@ frontend:
     build:
       commands:
         # Materialise env vars for `next build` (Amplify SSR runtime omits them).
+        - node -e "['NEXT_PUBLIC_SUPABASE_URL','NEXT_PUBLIC_SUPABASE_ANON_KEY','NEXT_PUBLIC_SITE_URL','SUPABASE_SERVICE_ROLE_KEY','ENCRYPTION_KEY','META_APP_SECRET'].forEach((k)=>console.log('[env-check]',k,process.env[k]?'SET':'MISSING'))"
         - node scripts/write-production-env.js
         - npm run build
   artifacts:
