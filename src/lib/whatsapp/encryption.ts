@@ -26,7 +26,20 @@ import crypto from 'crypto'
  *   `src/app/api/whatsapp/send/route.ts`.
  */
 
-const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY!
+// Read at call time, not module load. Some hosts (Amplify, Vercel)
+// bundle server code at build time; a module-level read can capture
+// `undefined` even after env vars are added and the app is redeployed.
+function encryptionKeyBytes(): Buffer {
+  const key = process.env.ENCRYPTION_KEY
+  if (!key || !/^[0-9a-fA-F]{64}$/.test(key)) {
+    throw new Error(
+      'ENCRYPTION_KEY must be a 64-character hex string (32 bytes). ' +
+        'Set it in your host env (Amplify Environment variables), then redeploy.',
+    )
+  }
+  return Buffer.from(key, 'hex')
+}
+
 // 12 bytes is the NIST-recommended IV length for GCM — keeps the
 // counter block well below 2^32 and matches the default web-crypto
 // behaviour, so any future port is straightforward.
@@ -36,11 +49,7 @@ const AUTH_TAG_LENGTH = 16
 
 export function encrypt(text: string): string {
   const iv = crypto.randomBytes(GCM_IV_LENGTH)
-  const cipher = crypto.createCipheriv(
-    'aes-256-gcm',
-    Buffer.from(ENCRYPTION_KEY, 'hex'),
-    iv,
-  )
+  const cipher = crypto.createCipheriv('aes-256-gcm', encryptionKeyBytes(), iv)
   let encrypted = cipher.update(text, 'utf8', 'hex')
   encrypted += cipher.final('hex')
   const authTag = cipher.getAuthTag()
@@ -67,7 +76,7 @@ export function decrypt(encryptedText: string): string {
     }
     const decipher = crypto.createDecipheriv(
       'aes-256-gcm',
-      Buffer.from(ENCRYPTION_KEY, 'hex'),
+      encryptionKeyBytes(),
       iv,
     )
     decipher.setAuthTag(authTag)
@@ -87,7 +96,7 @@ export function decrypt(encryptedText: string): string {
     }
     const decipher = crypto.createDecipheriv(
       'aes-256-cbc',
-      Buffer.from(ENCRYPTION_KEY, 'hex'),
+      encryptionKeyBytes(),
       iv,
     )
     let decrypted = decipher.update(ctHex, 'hex', 'utf8')
