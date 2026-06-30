@@ -6,8 +6,7 @@ frontend:
         - npm ci
     build:
       commands:
-        # Amplify often omits server-only env vars from the SSR runtime.
-        # Materialise them for `next build` so API routes can read them.
+        # Materialise env vars for `next build` (Amplify SSR runtime omits them).
         - node scripts/write-production-env.js
         - npm run build
   artifacts:

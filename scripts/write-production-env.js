@@ -1,25 +1,26 @@
 #!/usr/bin/env node
 /**
- * Amplify (and some other hosts) expose NEXT_PUBLIC_* at build time but
- * omit server-only vars from the Next.js SSR runtime. Writing them into
- * .env.production during `amplify.yml` build makes them available to
- * API routes (whatsapp config, webhook, etc.).
- *
- * Safe to run locally — appends only when vars are set in the environment.
+ * Amplify SSR often does not pass env vars to the Next.js runtime.
+ * Next.js only inlines `process.env.VAR` when accessed statically
+ * (not process.env[name]). Writing vars into `.env.production` before
+ * `next build` bakes them into server bundles.
  */
 const fs = require('fs')
 const path = require('path')
 
-const SERVER_VARS = [
+const REQUIRED_VARS = [
+  'NEXT_PUBLIC_SUPABASE_URL',
+  'NEXT_PUBLIC_SUPABASE_ANON_KEY',
+  'NEXT_PUBLIC_SITE_URL',
   'SUPABASE_SERVICE_ROLE_KEY',
   'ENCRYPTION_KEY',
   'META_APP_SECRET',
 ]
 
-const missing = SERVER_VARS.filter((name) => !process.env[name]?.trim())
+const missing = REQUIRED_VARS.filter((name) => !process.env[name]?.trim())
 if (missing.length > 0) {
   console.error(
-    '[write-production-env] Missing required server env vars:',
+    '[write-production-env] Missing required env vars:',
     missing.join(', '),
   )
   console.error(
@@ -29,6 +30,13 @@ if (missing.length > 0) {
 }
 
 const envPath = path.join(process.cwd(), '.env.production')
-const lines = SERVER_VARS.map((name) => `${name}=${process.env[name].trim()}`)
-fs.appendFileSync(envPath, `\n# amplify build — server-only secrets\n${lines.join('\n')}\n`)
-console.log('[write-production-env] Wrote server env vars to .env.production')
+const lines = REQUIRED_VARS.map((name) => `${name}=${process.env[name].trim()}`)
+fs.writeFileSync(
+  envPath,
+  `# generated at amplify build — do not commit\n${lines.join('\n')}\n`,
+)
+console.log(
+  '[write-production-env] Wrote',
+  REQUIRED_VARS.length,
+  'vars to .env.production',
+)
