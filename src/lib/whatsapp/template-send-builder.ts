@@ -56,7 +56,7 @@ export type MetaSendComponent =
   | { type: 'body'; parameters: MetaSendParameter[] }
   | {
       type: 'button';
-      sub_type: 'url' | 'quick_reply' | 'copy_code';
+      sub_type: 'url' | 'quick_reply' | 'copy_code' | 'flow';
       index: string;
       parameters: MetaSendParameter[];
     };
@@ -67,7 +67,14 @@ type MetaSendParameter =
   | { type: 'video'; video: { link?: string; id?: string } }
   | { type: 'document'; document: { link?: string; id?: string } }
   | { type: 'coupon_code'; coupon_code: string }
-  | { type: 'payload'; payload: string };
+  | { type: 'payload'; payload: string }
+  | {
+      type: 'action';
+      action: {
+        flow_token?: string;
+        flow_action_data?: Record<string, unknown>;
+      };
+    };
 
 function buildHeaderComponent(
   template: MessageTemplate,
@@ -152,9 +159,13 @@ function buttonNeedsSendParam(
     case 'URL':
       return extractVariableIndices(button.url).length > 0;
     case 'COPY_CODE':
-      // We always emit a button param for COPY_CODE so the customer
-      // gets a real code (either the caller's override or the
-      // template's example as a default).
+      return true;
+    case 'FLOW':
+      // Meta requires a flow button component on every send.
+      return true;
+    case 'PAYMENT_REQUEST':
+    case 'OTP':
+    case 'META':
       return true;
     case 'QUICK_REPLY':
     case 'PHONE_NUMBER':
@@ -204,6 +215,52 @@ function buildButtonComponent(
         parameters: [{ type: 'payload', payload: override! }],
       };
     }
+    case 'FLOW': {
+      // flow_token tracks the session; override via buttonParams[index]
+      // as JSON string { "flow_token": "...", "flow_action_data": {} }
+      // or plain token string.
+      let flowToken = `wacrm-${Date.now()}`;
+      let flowActionData: Record<string, unknown> = {};
+      if (override?.trim()) {
+        try {
+          const parsed = JSON.parse(override) as {
+            flow_token?: string;
+            flow_action_data?: Record<string, unknown>;
+          };
+          if (parsed.flow_token) flowToken = parsed.flow_token;
+          if (parsed.flow_action_data) flowActionData = parsed.flow_action_data;
+        } catch {
+          flowToken = override.trim();
+        }
+      }
+      return {
+        type: 'button',
+        sub_type: 'flow',
+        index: String(index),
+        parameters: [
+          {
+            type: 'action',
+            action: {
+              flow_token: flowToken,
+              flow_action_data: flowActionData,
+            },
+          },
+        ],
+      };
+    }
+    case 'PAYMENT_REQUEST':
+      throw new Error(
+        `Template button "${button.text}" is a Meta payment button (Review and Pay). ` +
+          'wacrm cannot send payment templates yet — use a URL or Quick Reply button template instead.',
+      );
+    case 'OTP':
+      throw new Error(
+        `Template button "${button.text}" is an OTP button — send Authentication templates from Meta directly.`,
+      );
+    case 'META':
+      throw new Error(
+        `Template button "${button.text}" uses Meta type ${button.meta_type}, which wacrm cannot send yet.`,
+      );
     case 'PHONE_NUMBER':
       // PHONE_NUMBER buttons never accept send-time params per Meta —
       // return null even if an override snuck through.

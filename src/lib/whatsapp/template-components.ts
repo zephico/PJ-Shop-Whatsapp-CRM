@@ -12,6 +12,7 @@
 
 import type { TemplatePayload } from './template-validators';
 import type { TemplateButton } from '@/types';
+import { isEditableTemplateButton } from '@/lib/whatsapp/template-buttons';
 
 export interface MetaComponent {
   type: 'HEADER' | 'BODY' | 'FOOTER' | 'BUTTONS';
@@ -103,14 +104,19 @@ function buildButtonPayload(b: TemplateButton): MetaButtonPayload {
       return { type: 'PHONE_NUMBER', text: b.text, phone_number: b.phone_number };
     case 'COPY_CODE':
       return { type: 'COPY_CODE', text: b.text, example: [b.example] };
+    default:
+      throw new Error(
+        `Cannot submit ${b.type} buttons from wacrm — edit this template in Meta WhatsApp Manager.`,
+      );
   }
 }
 
 function buildButtonsComponent(payload: TemplatePayload): MetaComponent | null {
-  if (!payload.buttons || payload.buttons.length === 0) return null;
+  const editable = (payload.buttons ?? []).filter(isEditableTemplateButton);
+  if (editable.length === 0) return null;
   return {
     type: 'BUTTONS',
-    buttons: payload.buttons.map(buildButtonPayload),
+    buttons: editable.map(buildButtonPayload),
   };
 }
 

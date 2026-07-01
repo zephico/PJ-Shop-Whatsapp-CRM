@@ -20,6 +20,7 @@ import type {
   TemplateButton,
   TemplateSampleValues,
 } from '@/types';
+import { isEditableTemplateButton } from '@/lib/whatsapp/template-buttons';
 
 export const TEMPLATE_LIMITS = {
   bodyMaxLength: 1024,
@@ -168,14 +169,18 @@ export function validateHeader(
 
 function countButtonsByType(
   buttons: TemplateButton[],
-): Record<TemplateButton['type'], number> {
-  const counts: Record<TemplateButton['type'], number> = {
+): Record<string, number> {
+  const counts: Record<string, number> = {
     QUICK_REPLY: 0,
     URL: 0,
     PHONE_NUMBER: 0,
     COPY_CODE: 0,
   };
-  for (const b of buttons) counts[b.type]++;
+  for (const b of buttons) {
+    if (isEditableTemplateButton(b)) {
+      counts[b.type]++;
+    }
+  }
   return counts;
 }
 
@@ -209,6 +214,7 @@ export function validateButtons(buttons: TemplateButton[] | undefined): void {
   // we leave the QUICK_REPLY block, we must not see another.
   let sawNonQR = false;
   for (const b of buttons) {
+    if (!isEditableTemplateButton(b)) continue;
     if (b.type === 'QUICK_REPLY') {
       if (sawNonQR) {
         throw new Error(
@@ -222,6 +228,7 @@ export function validateButtons(buttons: TemplateButton[] | undefined): void {
 
   for (let i = 0; i < buttons.length; i++) {
     const b = buttons[i];
+    if (!isEditableTemplateButton(b)) continue;
     if (!b.text?.trim()) {
       throw new Error(`Button #${i + 1} (${b.type}) is missing text.`);
     }

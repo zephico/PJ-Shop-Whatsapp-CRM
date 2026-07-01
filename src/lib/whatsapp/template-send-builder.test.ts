@@ -253,6 +253,30 @@ describe('buildSendComponents — buttons', () => {
     );
     expect(components).toEqual([]);
   });
+
+  it('emits a FLOW button component with a default flow_token', () => {
+    const components = buildSendComponents(
+      row({
+        buttons: [{ type: 'FLOW', text: 'Book', flow_id: '99' }],
+      }),
+    );
+    expect(components).toHaveLength(1);
+    expect(components[0]).toMatchObject({
+      type: 'button',
+      sub_type: 'flow',
+      index: '0',
+    });
+  });
+
+  it('throws for PAYMENT_REQUEST buttons with a clear message', () => {
+    expect(() =>
+      buildSendComponents(
+        row({
+          buttons: [{ type: 'PAYMENT_REQUEST', text: 'Review and Pay' }],
+        }),
+      ),
+    ).toThrow(/payment button/i);
+  });
 });
 
 describe('buildSendComponents — end-to-end mix', () => {
