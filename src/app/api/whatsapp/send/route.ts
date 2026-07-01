@@ -21,6 +21,9 @@ import {
 } from '@/lib/rate-limit'
 import type { MessageTemplate } from '@/types'
 import { isMessageTemplate } from '@/lib/whatsapp/template-row-guard'
+import { buildSendComponents } from '@/lib/whatsapp/template-send-builder'
+import { extractVariableIndices } from '@/lib/whatsapp/template-validators'
+import { formatMetaApiError } from '@/lib/whatsapp/meta-send-errors'
 
 export async function POST(request: Request) {
   try {
@@ -269,6 +272,58 @@ export async function POST(request: Request) {
         )
       }
       templateRow = data ?? null
+
+      const lang = template_language || 'en_US'
+
+      if (!templateRow) {
+        return NextResponse.json(
+          {
+            error:
+              `Template "${template_name}" (${lang}) was not found in your account. ` +
+              'Run Sync from Meta in Settings → Templates, and confirm the language matches Meta exactly (e.g. en_US).',
+          },
+          { status: 400 },
+        )
+      }
+
+      if (templateRow.status !== 'APPROVED') {
+        return NextResponse.json(
+          {
+            error:
+              `Template "${template_name}" is ${templateRow.status ?? 'unknown'}, not APPROVED. ` +
+              'Wait for Meta approval, then Sync from Meta before sending.',
+          },
+          { status: 400 },
+        )
+      }
+
+      const bodyParams =
+        template_message_params?.body ?? template_params ?? []
+      const varCount = extractVariableIndices(templateRow.body_text).length
+      if (bodyParams.length < varCount) {
+        return NextResponse.json(
+          {
+            error:
+              `Template "${template_name}" needs ${varCount} body value(s) but got ${bodyParams.length}. ` +
+              'Fill every {{N}} placeholder in the template picker.',
+          },
+          { status: 400 },
+        )
+      }
+
+      try {
+        buildSendComponents(templateRow, {
+          body: bodyParams,
+          headerText: template_message_params?.headerText,
+          headerMediaUrl: template_message_params?.headerMediaUrl,
+          headerMediaId: template_message_params?.headerMediaId,
+          buttonParams: template_message_params?.buttonParams,
+        })
+      } catch (buildErr) {
+        const msg =
+          buildErr instanceof Error ? buildErr.message : 'Invalid template parameters'
+        return NextResponse.json({ error: msg }, { status: 400 })
+      }
     }
 
     const attempt = async (phone: string): Promise<string> => {
@@ -340,9 +395,10 @@ export async function POST(request: Request) {
       if (lastError) throw lastError
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unknown Meta API error'
-      console.error('Meta API send failed for all variants:', message)
+      const explained = formatMetaApiError(message)
+      console.error('Meta API send failed for all variants:', explained)
       return NextResponse.json(
-        { error: `Meta API error: ${message}` },
+        { error: explained },
         { status: 502 }
       )
     }

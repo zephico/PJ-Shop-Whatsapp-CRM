@@ -9,6 +9,8 @@
  * instead of a runtime rejection from Meta.
  */
 
+import { metaErrorFromBody } from './meta-send-errors'
+
 const META_API_VERSION = 'v21.0'
 const META_API_BASE = `https://graph.facebook.com/${META_API_VERSION}`
 
@@ -24,14 +26,20 @@ export interface MetaPhoneInfo {
 }
 
 interface MetaErrorResponse {
-  error?: { message?: string; code?: number; type?: string }
+  error?: {
+    message?: string
+    code?: number
+    type?: string
+    error_user_msg?: string
+    error_data?: { details?: string }
+  }
 }
 
 async function throwMetaError(response: Response, fallback: string): Promise<never> {
   let message = fallback
   try {
     const data = (await response.json()) as MetaErrorResponse
-    if (data.error?.message) message = data.error.message
+    message = metaErrorFromBody(data, fallback)
   } catch {
     // response body wasn't JSON — keep the fallback
   }
