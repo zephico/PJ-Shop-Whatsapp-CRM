@@ -244,7 +244,21 @@ export type TemplateButton =
   | { type: 'QUICK_REPLY'; text: string }
   | { type: 'URL'; text: string; url: string; example?: string }
   | { type: 'PHONE_NUMBER'; text: string; phone_number: string }
-  | { type: 'COPY_CODE'; text: string; example: string };
+  | { type: 'COPY_CODE'; text: string; example: string }
+  /** Synced from Meta — opens a WhatsApp Flow when the template is sent. */
+  | {
+      type: 'FLOW';
+      text: string;
+      flow_id?: string;
+      flow_name?: string;
+      flow_action?: string;
+    }
+  /** Synced from Meta — "Review and Pay" / payment templates. */
+  | { type: 'PAYMENT_REQUEST'; text: string }
+  /** Synced from Meta — authentication OTP button. */
+  | { type: 'OTP'; text: string; otp_type?: string }
+  /** Other Meta button types (CATALOG, MPM, …) preserved for display. */
+  | { type: 'META'; text: string; meta_type: string };
 
 export interface TemplateSampleValues {
   body?: string[];

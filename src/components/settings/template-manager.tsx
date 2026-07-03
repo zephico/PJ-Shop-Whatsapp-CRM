@@ -51,6 +51,11 @@ import {
   extractVariableIndices,
   TEMPLATE_LIMITS,
 } from '@/lib/whatsapp/template-validators';
+import {
+  isEditableTemplateButton,
+  templateButtonTypeLabel,
+  type EditableButtonType,
+} from '@/lib/whatsapp/template-buttons';
 
 const CATEGORIES = ['Marketing', 'Utility', 'Authentication'] as const;
 type HeaderFormat = 'none' | 'text' | 'image' | 'video' | 'document';
@@ -110,7 +115,7 @@ const COMMON_LANGUAGE_CODES = [
   'lt',
 ];
 
-function emptyButton(type: TemplateButton['type']): TemplateButton {
+function emptyButton(type: EditableButtonType): TemplateButton {
   switch (type) {
     case 'QUICK_REPLY':
       return { type: 'QUICK_REPLY', text: '' };
@@ -314,6 +319,16 @@ export function TemplateManager() {
             ? ` (${data.inserted} new, ${data.updated} updated)`
             : ''),
       );
+      if (Array.isArray(data.buttonNotes) && data.buttonNotes.length > 0) {
+        toast.info(
+          `Synced buttons from Meta. Note: ${data.buttonNotes[0]}${
+            data.buttonNotes.length > 1
+              ? ` (+${data.buttonNotes.length - 1} more)`
+              : ''
+          }`,
+          { duration: 12000 },
+        );
+      }
       if (Array.isArray(data.errors) && data.errors.length > 0) {
         const preview = data.errors.slice(0, 3).map(
           (e: { name: string; language: string; message: string }) =>
@@ -417,12 +432,14 @@ export function TemplateManager() {
             ...(patch.example !== undefined && { example: patch.example }),
           };
           break;
+        default:
+          break;
       }
       return { ...prev, buttons: next };
     });
   }
 
-  function changeButtonType(index: number, type: TemplateButton['type']) {
+  function changeButtonType(index: number, type: EditableButtonType) {
     setForm((prev) => {
       const next = [...prev.buttons];
       next[index] = emptyButton(type);
@@ -560,6 +577,19 @@ export function TemplateManager() {
                       <p className="text-xs text-muted-foreground italic">
                         {template.footer_text}
                       </p>
+                    )}
+                    {template.buttons && template.buttons.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 pt-0.5">
+                        {template.buttons.map((btn, i) => (
+                          <Badge
+                            key={`${btn.type}-${i}`}
+                            variant="outline"
+                            className="text-[10px] border-border text-muted-foreground font-normal"
+                          >
+                            {templateButtonTypeLabel(btn.type)}: {btn.text}
+                          </Badge>
+                        ))}
+                      </div>
                     )}
                     {(template.rejection_reason || template.submission_error) && (
                       <div className="flex items-start gap-1.5 text-xs text-red-400 bg-red-950/20 border border-red-900/40 rounded px-2 py-1.5">
@@ -943,7 +973,37 @@ export function TemplateManager() {
                 </p>
               ) : (
                 <div className="space-y-2">
-                  {form.buttons.map((btn, i) => (
+                  {form.buttons.map((btn, i) =>
+                    !isEditableTemplateButton(btn) ? (
+                      <div
+                        key={i}
+                        className="rounded border border-amber-900/40 bg-amber-950/20 p-2 space-y-1"
+                      >
+                        <div className="flex items-center gap-2">
+                          <Badge className="text-[10px] border-amber-700/40 bg-amber-950/40 text-amber-200">
+                            {templateButtonTypeLabel(btn.type)} (from Meta)
+                          </Badge>
+                          <span className="text-xs text-foreground">{btn.text}</span>
+                        </div>
+                        {btn.type === 'FLOW' && btn.flow_id && (
+                          <p className="text-[10px] text-muted-foreground">
+                            Flow ID: {btn.flow_id}
+                          </p>
+                        )}
+                        {btn.type === 'META' && (
+                          <p className="text-[10px] text-muted-foreground">
+                            Meta type: {btn.meta_type}
+                          </p>
+                        )}
+                        {(btn.type === 'PAYMENT_REQUEST' || btn.type === 'META') && (
+                          <p className="text-[10px] text-amber-200/90">
+                            Synced for visibility — edit or send this button type in Meta
+                            WhatsApp Manager. wacrm cannot re-submit payment/catalog buttons
+                            yet.
+                          </p>
+                        )}
+                      </div>
+                    ) : (
                     <div
                       key={i}
                       className="space-y-2 rounded border border-border bg-muted/50 p-2"
@@ -956,7 +1016,7 @@ export function TemplateManager() {
                             // (per PR 148): @base-ui Select fires
                             // onValueChange(null) on deselect.
                             if (!val) return;
-                            changeButtonType(i, val as TemplateButton['type']);
+                            changeButtonType(i, val as EditableButtonType);
                           }}
                         >
                           <SelectTrigger className="w-40 bg-muted border-border text-foreground h-8 text-xs">
@@ -1051,7 +1111,8 @@ export function TemplateManager() {
                         />
                       )}
                     </div>
-                  ))}
+                    ),
+                  )}
                 </div>
               )}
             </div>

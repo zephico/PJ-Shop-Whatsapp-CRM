@@ -2,7 +2,12 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { decrypt } from '@/lib/whatsapp/encryption'
 import { normalizeStatus } from '@/lib/whatsapp/template-status-normalize'
-import type { TemplateButton, TemplateSampleValues } from '@/types'
+import {
+  findButtonsComponent,
+  parseMetaButtons,
+  type MetaSyncComponent,
+} from '@/lib/whatsapp/template-sync-parser'
+import type { TemplateSampleValues } from '@/types'
 
 /**
  * Sync message templates from Meta → local message_templates table.
@@ -20,25 +25,7 @@ import type { TemplateButton, TemplateSampleValues } from '@/types'
 const META_API_VERSION = 'v21.0'
 const META_API_BASE = `https://graph.facebook.com/${META_API_VERSION}`
 
-interface MetaButton {
-  type: string
-  text: string
-  url?: string
-  phone_number?: string
-  example?: string[] | string
-}
-
-interface MetaTemplateComponent {
-  type: string
-  text?: string
-  format?: string
-  buttons?: MetaButton[]
-  example?: {
-    header_text?: string[]
-    header_handle?: string[]
-    body_text?: string[][]
-  }
-}
+interface MetaTemplateComponent extends MetaSyncComponent {}
 
 interface MetaTemplate {
   id: string
@@ -69,42 +56,6 @@ function normalizeQualityScore(
   return upper === 'GREEN' || upper === 'YELLOW' || upper === 'RED'
     ? (upper as 'GREEN' | 'YELLOW' | 'RED')
     : null
-}
-
-function parseButtons(metaButtons: MetaButton[] | undefined): TemplateButton[] {
-  if (!metaButtons?.length) return []
-  const out: TemplateButton[] = []
-  for (const b of metaButtons) {
-    switch (b.type?.toUpperCase()) {
-      case 'QUICK_REPLY':
-        out.push({ type: 'QUICK_REPLY', text: b.text })
-        break
-      case 'URL':
-        out.push({
-          type: 'URL',
-          text: b.text,
-          url: b.url ?? '',
-          example: Array.isArray(b.example) ? b.example[0] : b.example,
-        })
-        break
-      case 'PHONE_NUMBER':
-        out.push({
-          type: 'PHONE_NUMBER',
-          text: b.text,
-          phone_number: b.phone_number ?? '',
-        })
-        break
-      case 'COPY_CODE':
-        out.push({
-          type: 'COPY_CODE',
-          text: b.text,
-          example: Array.isArray(b.example) ? b.example[0] ?? '' : b.example ?? '',
-        })
-        break
-      // OTP, FLOW, etc — out of scope for v1; drop silently.
-    }
-  }
-  return out
 }
 
 function extractSampleValues(
@@ -213,14 +164,26 @@ export async function POST() {
     let inserted = 0
     let updated = 0
     const errors: { name: string; language: string; message: string }[] = []
+    const buttonNotes: string[] = []
 
     for (const t of metaTemplates) {
-      const body = (t.components ?? []).find((c) => c.type === 'BODY')
-      const header = (t.components ?? []).find((c) => c.type === 'HEADER')
-      const footer = (t.components ?? []).find((c) => c.type === 'FOOTER')
-      const buttons = (t.components ?? []).find((c) => c.type === 'BUTTONS')
+      const body = (t.components ?? []).find(
+        (c) => c.type?.toUpperCase() === 'BODY',
+      )
+      const header = (t.components ?? []).find(
+        (c) => c.type?.toUpperCase() === 'HEADER',
+      )
+      const footer = (t.components ?? []).find(
+        (c) => c.type?.toUpperCase() === 'FOOTER',
+      )
+      const buttons = findButtonsComponent(t.components)
 
-      const parsedButtons = parseButtons(buttons?.buttons)
+      const { buttons: parsedButtons, sendNotes } = parseMetaButtons(
+        buttons?.buttons,
+      )
+      for (const note of sendNotes) {
+        buttonNotes.push(`${t.name} (${t.language}): ${note}`)
+      }
       const sampleValues = extractSampleValues(body, header)
 
       const headerFormat = header?.format?.toUpperCase()
@@ -307,6 +270,7 @@ export async function POST() {
       inserted,
       updated,
       errors,
+      buttonNotes,
       truncated: pageCount >= PAGE_CAP && nextUrl !== null,
     })
   } catch (error) {
