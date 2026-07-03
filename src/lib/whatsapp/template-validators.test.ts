@@ -45,6 +45,14 @@ describe('normalizeUrlVariablePlaceholders', () => {
       ),
     ).toBe('https://shop.example/products/{{1}}');
   });
+
+  it('collapses duplicate {{1}} when literal and encoded forms were both stored', () => {
+    expect(
+      normalizeUrlVariablePlaceholders(
+        'https://pradeepjewellers.in/products/{{1}}%7B%7B1%7D%7D',
+      ),
+    ).toBe('https://pradeepjewellers.in/products/{{1}}');
+  });
 });
 
 describe('applyUrlButtonVariable', () => {
@@ -56,6 +64,17 @@ describe('applyUrlButtonVariable', () => {
       ),
     ).toBe(
       'https://pradeepjewellers.in/products/kaira-harmony-ring-for-women-abc123',
+    );
+  });
+
+  it('does not duplicate slug when template URL had {{1}} twice', () => {
+    expect(
+      applyUrlButtonVariable(
+        'https://pradeepjewellers.in/products/{{1}}%7B%7B1%7D%7D',
+        'nyra-whisper-drope-ring-for-women-abc123',
+      ),
+    ).toBe(
+      'https://pradeepjewellers.in/products/nyra-whisper-drope-ring-for-women-abc123',
     );
   });
 });

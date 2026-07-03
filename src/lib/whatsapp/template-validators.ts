@@ -87,6 +87,10 @@ export function normalizeUrlVariablePlaceholders(url: string): string {
       // Keep the partially normalized string.
     }
   }
+  // Meta URL buttons allow only one {{1}} suffix. Duplicate placeholders
+  // appear when both literal {{1}} and encoded %7B%7B1%7D%7D were stored
+  // in the same string (common after Meta sync).
+  out = out.replace(/(\{\{1\}\})+/g, '{{1}}');
   return out;
 }
 
