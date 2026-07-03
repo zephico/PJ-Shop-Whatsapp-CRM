@@ -13,10 +13,16 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { Radio, Plus, Loader2 } from 'lucide-react';
+import { Radio, Plus, Loader2, RotateCcw } from 'lucide-react';
 import { useCan } from '@/hooks/use-can';
 import { GatedButton } from '@/components/ui/gated-button';
-import { getBroadcastStatus } from '@/lib/broadcast-status';
+import { getBroadcastStatus, canResendBroadcast } from '@/lib/broadcast-status';
+import { useBroadcastSending } from '@/hooks/use-broadcast-sending';
+import { toast } from 'sonner';
+import {
+  BroadcastPersonalizeDialog,
+  type BroadcastPersonalizePayload,
+} from '@/components/broadcasts/broadcast-personalize-dialog';
 
 /**
  * Poll cadence while any broadcast is sending. Kept modest so we don't
@@ -59,9 +65,12 @@ function RateCell({
 export default function BroadcastsPage() {
   const router = useRouter();
   const canCreate = useCan('send-messages');
+  const { resendBroadcast, isProcessing } = useBroadcastSending();
   const [broadcasts, setBroadcasts] = useState<Broadcast[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [resendTarget, setResendTarget] = useState<Broadcast | null>(null);
+  const [resendingId, setResendingId] = useState<string | null>(null);
 
   // Used to kick off polling only while something is actively sending.
   const pollTimer = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -127,6 +136,22 @@ export default function BroadcastsPage() {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [anySending]);
+
+  async function handleConfirmResend(payload: BroadcastPersonalizePayload) {
+    if (!resendTarget) return;
+    setResendingId(resendTarget.id);
+    try {
+      const newId = await resendBroadcast(resendTarget.id, payload);
+      toast.success('Broadcast sent again');
+      setResendTarget(null);
+      await fetchBroadcasts();
+      router.push(`/broadcasts/${newId}`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to send again');
+    } finally {
+      setResendingId(null);
+    }
+  }
 
   if (loading) {
     return (
@@ -226,11 +251,14 @@ export default function BroadcastsPage() {
                 <TableHead className="hidden text-muted-foreground lg:table-cell">Read</TableHead>
                 <TableHead className="text-muted-foreground">Status</TableHead>
                 <TableHead className="hidden text-muted-foreground sm:table-cell">Date</TableHead>
+                <TableHead className="text-right text-muted-foreground">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {broadcasts.map((broadcast) => {
                 const status = getBroadcastStatus(broadcast.status);
+                const showResend = canResendBroadcast(broadcast.status);
+                const isResending = resendingId === broadcast.id;
                 return (
                   <TableRow
                     key={broadcast.id}
@@ -276,6 +304,30 @@ export default function BroadcastsPage() {
                     <TableCell className="hidden text-muted-foreground sm:table-cell">
                       {new Date(broadcast.created_at).toLocaleDateString()}
                     </TableCell>
+                    <TableCell className="text-right">
+                      {showResend && (
+                        <GatedButton
+                          canAct={canCreate}
+                          gateReason="send broadcasts"
+                          variant="outline"
+                          size="sm"
+                          disabled={isProcessing || isResending}
+                          title="Send this broadcast again with the same template and audience"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setResendTarget(broadcast);
+                          }}
+                          className="border-border text-muted-foreground hover:bg-muted"
+                        >
+                          {isResending ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <RotateCcw className="h-3.5 w-3.5" />
+                          )}
+                          Send again
+                        </GatedButton>
+                      )}
+                    </TableCell>
                   </TableRow>
                 );
               })}
@@ -283,6 +335,21 @@ export default function BroadcastsPage() {
           </Table>
         </div>
       )}
+
+      <BroadcastPersonalizeDialog
+        open={resendTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setResendTarget(null);
+        }}
+        broadcast={resendTarget}
+        title={
+          resendTarget ? `Send again — ${resendTarget.name}` : 'Send again'
+        }
+        description="Review and update template placeholders before sending to the same audience."
+        confirmLabel="Send again"
+        submitting={resendingId !== null}
+        onConfirm={handleConfirmResend}
+      />
     </div>
   );
 }

@@ -444,6 +444,9 @@ export async function sendTemplateMessage(
     },
     body: JSON.stringify(body),
   })
+  if (process.env.NODE_ENV === 'development') {
+    console.debug('[whatsapp] template send payload', JSON.stringify(body, null, 2))
+  }
   if (!response.ok) {
     await throwMetaError(response, `Meta API error: ${response.status}`)
   }

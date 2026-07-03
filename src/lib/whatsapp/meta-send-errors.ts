@@ -18,6 +18,10 @@ export function formatMetaApiError(raw: string): string {
     )
   } else if (/payment button/i.test(raw)) {
     parts.push('Use a template with URL or Quick Reply buttons instead.')
+  } else if (/image header|media link|header media|132015|132016|132018/i.test(raw)) {
+    parts.push(
+      'Image/video/document headers need a public HTTPS URL at send time. Set Header Image URL in the template picker.',
+    )
   }
 
   return parts.join(' ')

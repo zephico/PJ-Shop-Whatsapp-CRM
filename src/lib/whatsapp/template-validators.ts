@@ -63,13 +63,39 @@ export function validateTemplateName(name: string): void {
  * `[1, 2, 4]` for `"Hi {{1}} {{2}}, item {{4}}"`.
  */
 export function extractVariableIndices(text: string): number[] {
-  const matches = text.matchAll(/\{\{(\d+)\}\}/g);
+  const normalized = normalizeUrlVariablePlaceholders(text);
+  const matches = normalized.matchAll(/\{\{(\d+)\}\}/g);
   const set = new Set<number>();
   for (const m of matches) {
     const n = Number(m[1]);
     if (Number.isFinite(n) && n >= 1) set.add(n);
   }
   return [...set].sort((a, b) => a - b);
+}
+
+/**
+ * Meta sometimes stores URL-button templates with percent-encoded
+ * placeholders (%7B%7B1%7D%7D) instead of literal {{1}}. Normalize
+ * before parsing variables or building a preview URL.
+ */
+export function normalizeUrlVariablePlaceholders(url: string): string {
+  let out = url.replace(/%7B%7B(\d+)%7D%7D/gi, (_, n) => `{{${n}}}`);
+  if (/%7B/i.test(out)) {
+    try {
+      out = decodeURIComponent(out);
+    } catch {
+      // Keep the partially normalized string.
+    }
+  }
+  return out;
+}
+
+/** Replace URL button {{1}} with the send-time suffix for UI preview. */
+export function applyUrlButtonVariable(url: string, value: string): string {
+  const normalized = normalizeUrlVariablePlaceholders(url);
+  const suffix = value.trim();
+  if (!suffix) return normalized;
+  return normalized.replace(/\{\{1\}\}/g, suffix);
 }
 
 /**

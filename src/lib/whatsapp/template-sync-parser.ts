@@ -1,4 +1,5 @@
 import type { TemplateButton } from '@/types';
+import { normalizeUrlVariablePlaceholders } from '@/lib/whatsapp/template-validators';
 
 /** Raw button object returned by GET /{waba_id}/message_templates. */
 export interface MetaSyncButton {
@@ -64,7 +65,7 @@ export function parseMetaButtons(
           buttons.push({
             type: 'URL',
             text,
-            url: b.url ?? '',
+            url: normalizeUrlVariablePlaceholders(b.url ?? ''),
             example: Array.isArray(b.example) ? b.example[0] : b.example,
           });
         }

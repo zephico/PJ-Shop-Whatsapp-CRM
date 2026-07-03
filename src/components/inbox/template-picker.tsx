@@ -21,11 +21,24 @@ import {
   LayoutTemplate,
   Loader2,
 } from "lucide-react";
-import { extractVariableIndices } from "@/lib/whatsapp/template-validators";
+import {
+  extractVariableIndices,
+  applyUrlButtonVariable,
+  normalizeUrlVariablePlaceholders,
+} from "@/lib/whatsapp/template-validators";
+import {
+  isMediaHeaderType,
+  mediaHeaderFieldLabel,
+  mediaHeaderFieldPlaceholder,
+  resolveHeaderMediaUrl,
+  validateHeaderMediaUrl,
+} from "@/lib/whatsapp/template-header-media";
 
 export interface TemplateSendValues {
   body: string[];
   headerText?: string;
+  headerMediaUrl?: string;
+  headerMediaId?: string;
   buttonParams?: Record<number, string>;
 }
 
@@ -58,6 +71,7 @@ function collectVariableSlots(template: MessageTemplate): {
   bodyVars: number[];
   headerVarCount: number;
   urlButtonSlots: UrlButtonSlot[];
+  mediaHeaderType: "image" | "video" | "document" | null;
 } {
   const bodyVars = extractVariableIndices(template.body_text);
   const headerVarCount =
@@ -70,7 +84,37 @@ function collectVariableSlots(template: MessageTemplate): {
       urlButtonSlots.push({ index: i, text: b.text, url: b.url });
     }
   });
-  return { bodyVars, headerVarCount, urlButtonSlots };
+  const mediaHeaderType = isMediaHeaderType(template.header_type)
+    ? template.header_type
+    : null;
+  return { bodyVars, headerVarCount, urlButtonSlots, mediaHeaderType };
+}
+
+function templateNeedsSendForm(template: MessageTemplate): boolean {
+  const slots = collectVariableSlots(template);
+  return (
+    slots.bodyVars.length > 0 ||
+    slots.headerVarCount > 0 ||
+    slots.urlButtonSlots.length > 0 ||
+    slots.mediaHeaderType !== null
+  );
+}
+
+function isHeaderMediaUrlValid(
+  mediaHeaderType: "image" | "video" | "document" | null,
+  headerMediaUrl: string,
+  headerMediaId: string,
+): boolean {
+  if (!mediaHeaderType) return true;
+  if (headerMediaId.trim()) return true;
+  const url = headerMediaUrl.trim();
+  if (!url) return false;
+  try {
+    validateHeaderMediaUrl(url);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export function TemplatePicker({
@@ -83,7 +127,10 @@ export function TemplatePicker({
   const [selected, setSelected] = useState<MessageTemplate | null>(null);
   const [params, setParams] = useState<string[]>([]);
   const [headerText, setHeaderText] = useState<string>("");
+  const [headerMediaUrl, setHeaderMediaUrl] = useState<string>("");
+  const [headerMediaId, setHeaderMediaId] = useState<string>("");
   const [buttonParams, setButtonParams] = useState<Record<number, string>>({});
+  const [headerMediaError, setHeaderMediaError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -145,7 +192,10 @@ export function TemplatePicker({
     setSelected(null);
     setParams([]);
     setHeaderText("");
+    setHeaderMediaUrl("");
+    setHeaderMediaId("");
     setButtonParams({});
+    setHeaderMediaError(null);
   }
 
   function handleOpenChange(next: boolean) {
@@ -154,26 +204,31 @@ export function TemplatePicker({
   }
 
   function pickTemplate(template: MessageTemplate) {
-    const slots = collectVariableSlots(template);
-    const noInputsNeeded =
-      slots.bodyVars.length === 0 &&
-      slots.headerVarCount === 0 &&
-      slots.urlButtonSlots.length === 0;
-    if (noInputsNeeded) {
+    if (!templateNeedsSendForm(template)) {
       onSelect(template, { body: [] });
       handleOpenChange(false);
       return;
     }
+    const slots = collectVariableSlots(template);
     setSelected(template);
     setParams(new Array(slots.bodyVars.length).fill(""));
     setHeaderText("");
+    setHeaderMediaUrl(
+      resolveHeaderMediaUrl(template.header_media_url?.trim() ?? ""),
+    );
+    setHeaderMediaId("");
     setButtonParams({});
+    setHeaderMediaError(null);
   }
 
   function confirm() {
     if (!selected) return;
     const values: TemplateSendValues = { body: params };
     if (headerText.trim()) values.headerText = headerText.trim();
+    const mediaUrl = resolveHeaderMediaUrl(headerMediaUrl.trim());
+    const mediaId = headerMediaId.trim();
+    if (mediaUrl) values.headerMediaUrl = mediaUrl;
+    if (mediaId) values.headerMediaId = mediaId;
     if (Object.keys(buttonParams).length > 0) {
       values.buttonParams = Object.fromEntries(
         Object.entries(buttonParams).map(([k, v]) => [Number(k), v.trim()]),
@@ -194,7 +249,13 @@ export function TemplatePicker({
     (slots.headerVarCount === 0 || headerText.trim().length > 0) &&
     slots.urlButtonSlots.every(
       (s) => (buttonParams[s.index] ?? "").trim().length > 0,
-    );
+    ) &&
+    isHeaderMediaUrlValid(
+      slots.mediaHeaderType,
+      headerMediaUrl,
+      headerMediaId,
+    ) &&
+    !headerMediaError;
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -284,6 +345,63 @@ export function TemplatePicker({
                 />
               </div>
             )}
+            {slots?.mediaHeaderType && (
+              <div className="space-y-2">
+                <div className="space-y-1">
+                  <Label className="text-xs text-popover-foreground">
+                    {mediaHeaderFieldLabel(slots.mediaHeaderType)}
+                  </Label>
+                  <Input
+                    value={headerMediaUrl}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      setHeaderMediaUrl(value);
+                      if (!value.trim()) {
+                        setHeaderMediaError(null);
+                        return;
+                      }
+                      try {
+                        validateHeaderMediaUrl(value);
+                        setHeaderMediaError(null);
+                      } catch (err) {
+                        setHeaderMediaError(
+                          err instanceof Error ? err.message : "Invalid URL",
+                        );
+                      }
+                    }}
+                    placeholder={mediaHeaderFieldPlaceholder(slots.mediaHeaderType)}
+                    className="border-border bg-muted text-foreground placeholder:text-muted-foreground"
+                  />
+                  {headerMediaError ? (
+                    <p className="text-[10px] text-red-400">{headerMediaError}</p>
+                  ) : (
+                    <p className="text-[10px] text-muted-foreground">
+                      Public HTTPS URL required. Meta cannot fetch localhost or
+                      private links.
+                    </p>
+                  )}
+                </div>
+                {slots.mediaHeaderType === "image" && headerMediaUrl.trim() && !headerMediaError && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={headerMediaUrl.trim()}
+                    alt="Header preview"
+                    className="max-h-32 rounded-md border border-border object-contain"
+                  />
+                )}
+                <div className="space-y-1">
+                  <Label className="text-xs text-muted-foreground">
+                    Header media ID (optional)
+                  </Label>
+                  <Input
+                    value={headerMediaId}
+                    onChange={(e) => setHeaderMediaId(e.target.value)}
+                    placeholder="Meta media id from a prior upload"
+                    className="border-border bg-muted text-foreground placeholder:text-muted-foreground"
+                  />
+                </div>
+              </div>
+            )}
             {slots?.bodyVars.map((v, i) => (
               <div key={v} className="space-y-1">
                 <Label className="text-xs text-popover-foreground">{`Body {{${v}}}`}</Label>
@@ -312,11 +430,19 @@ export function TemplatePicker({
                       [slot.index]: e.target.value,
                     }))
                   }
-                  placeholder="URL suffix value"
+                  placeholder="Product slug only, e.g. kaira-harmony-ring-for-women-abc123"
                   className="border-border bg-muted text-foreground placeholder:text-muted-foreground"
                 />
                 <p className="text-[10px] text-muted-foreground break-all">
-                  Final URL: {slot.url.replace(/\{\{1\}\}/g, buttonParams[slot.index] || "{{1}}")}
+                  Final URL:{" "}
+                  {applyUrlButtonVariable(
+                    slot.url,
+                    buttonParams[slot.index] ?? "",
+                  )}
+                </p>
+                <p className="text-[10px] text-muted-foreground">
+                  Enter only the part that replaces {`{{1}}`}, not the full URL.
+                  Template base: {normalizeUrlVariablePlaceholders(slot.url)}
                 </p>
               </div>
             ))}

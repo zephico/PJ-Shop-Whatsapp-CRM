@@ -92,3 +92,13 @@ export function getRecipientStatus(status: string): StatusDisplay {
     recipientStatusConfig.pending
   );
 }
+
+/** Completed broadcasts can be re-sent with the same template and audience. */
+export function canResendBroadcast(status: string): boolean {
+  return status === "sent" || status === "failed";
+}
+
+/** More contacts can be added to a broadcast after the initial send. */
+export function canAddContactsToBroadcast(status: string): boolean {
+  return status === "sent" || status === "failed";
+}

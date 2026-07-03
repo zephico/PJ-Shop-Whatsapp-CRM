@@ -146,7 +146,23 @@ describe('buildSendComponents — header', () => {
   it('throws on media header with no link OR id available', () => {
     expect(() =>
       buildSendComponents(row({ header_type: 'image' })),
-    ).toThrow(/requires a media link or id/);
+    ).toThrow(/requires an image header/);
+  });
+
+  it('throws on invalid HTTPS media URL', () => {
+    expect(() =>
+      buildSendComponents(row({ header_type: 'image' }), {
+        headerMediaUrl: 'http://example.com/img.jpg',
+      }),
+    ).toThrow(/HTTPS/);
+  });
+
+  it('throws on localhost media URL', () => {
+    expect(() =>
+      buildSendComponents(row({ header_type: 'image' }), {
+        headerMediaUrl: 'https://localhost/img.jpg',
+      }),
+    ).toThrow(/publicly reachable/);
   });
 });
 

@@ -32,6 +32,11 @@
 
 import type { MessageTemplate, TemplateButton } from '@/types';
 import { extractVariableIndices } from './template-validators';
+import {
+  headerMediaRequiredError,
+  resolveHeaderMediaUrl,
+  validateHeaderMediaUrl,
+} from './template-header-media';
 
 export interface SendTimeParams {
   /** Values for body {{1}}, {{2}}, … indexed by variable position. */
@@ -110,14 +115,18 @@ function buildHeaderComponent(
   // sample (`example.header_handle`); it is NOT a reusable send-time
   // media id, and passing it as `{ id }` makes Meta reject the send. Only
   // an explicit `headerMediaId` (a real /media upload id) is honored.
-  const link = params.headerMediaUrl ?? template.header_media_url;
-  const id = params.headerMediaId;
-  if (!link && !id) {
-    throw new Error(
-      `${headerType} header requires a media link or id at send time — set header_media_url on the template or pass headerMediaUrl/headerMediaId.`,
-    );
+  const rawLink = params.headerMediaUrl ?? template.header_media_url;
+  const link = rawLink ? resolveHeaderMediaUrl(rawLink) : undefined;
+  const id = params.headerMediaId?.trim();
+  if (!link?.trim() && !id) {
+    throw new Error(headerMediaRequiredError(headerType));
   }
-  const mediaPayload: { link?: string; id?: string } = id ? { id } : { link };
+  if (link?.trim() && !id) {
+    validateHeaderMediaUrl(link);
+  }
+  const mediaPayload: { link?: string; id?: string } = id
+    ? { id }
+    : { link: link!.trim() };
   return {
     type: 'header',
     parameters: [

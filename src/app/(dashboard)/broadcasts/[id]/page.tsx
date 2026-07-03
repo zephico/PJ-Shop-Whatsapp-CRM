@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Broadcast, BroadcastRecipient, RecipientStatus } from '@/types';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import {
   Table,
   TableBody,
@@ -32,12 +33,25 @@ import {
   Download,
   ChevronDown,
   Trash2,
+  RotateCcw,
+  Search,
+  UserPlus,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   getBroadcastStatus,
   getRecipientStatus,
+  canResendBroadcast,
+  canAddContactsToBroadcast,
 } from '@/lib/broadcast-status';
+import { useCan } from '@/hooks/use-can';
+import { useBroadcastSending } from '@/hooks/use-broadcast-sending';
+import { GatedButton } from '@/components/ui/gated-button';
+import {
+  BroadcastPersonalizeDialog,
+  type BroadcastPersonalizePayload,
+} from '@/components/broadcasts/broadcast-personalize-dialog';
+import { BroadcastAddContactsDialog } from '@/components/broadcasts/broadcast-add-contacts-dialog';
 
 interface StatCardProps {
   label: string;
@@ -129,6 +143,24 @@ function toCsv(rows: string[][]): string {
   return rows.map((r) => r.map(escape).join(',')).join('\n');
 }
 
+function recipientMatchesSearch(
+  recipient: BroadcastRecipient,
+  query: string,
+): boolean {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+
+  const name = (recipient.contact?.name ?? '').toLowerCase();
+  const phone = recipient.contact?.phone ?? '';
+  const phoneDigits = phone.replace(/\D/g, '');
+  const queryDigits = q.replace(/\D/g, '');
+
+  if (name.includes(q)) return true;
+  if (phone.toLowerCase().includes(q)) return true;
+  if (queryDigits.length >= 3 && phoneDigits.includes(queryDigits)) return true;
+  return false;
+}
+
 function downloadBlob(filename: string, content: string) {
   const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
@@ -145,6 +177,9 @@ export default function BroadcastDetailPage() {
   const params = useParams();
   const router = useRouter();
   const broadcastId = params.id as string;
+  const canSend = useCan('send-messages');
+  const { resendBroadcast, retryBroadcastRecipient, addContactsToBroadcast, isProcessing } =
+    useBroadcastSending();
 
   const [broadcast, setBroadcast] = useState<Broadcast | null>(null);
   const [recipients, setRecipients] = useState<BroadcastRecipient[]>([]);
@@ -153,31 +188,48 @@ export default function BroadcastDetailPage() {
   const [statusFilter, setStatusFilter] = useState<RecipientStatus | 'all'>(
     'all',
   );
+  const [recipientSearch, setRecipientSearch] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [resendOpen, setResendOpen] = useState(false);
+  const [resending, setResending] = useState(false);
+  const [retryRecipient, setRetryRecipient] =
+    useState<BroadcastRecipient | null>(null);
+  const [retryingRecipientId, setRetryingRecipientId] = useState<string | null>(
+    null,
+  );
+  const [addContactsOpen, setAddContactsOpen] = useState(false);
+  const [pendingContactIds, setPendingContactIds] = useState<string[]>([]);
+  const [addPersonalizeOpen, setAddPersonalizeOpen] = useState(false);
+  const [addingContacts, setAddingContacts] = useState(false);
+
+  async function loadBroadcastData() {
+    const supabase = createClient();
+
+    const { data: bc, error: bcError } = await supabase
+      .from('broadcasts')
+      .select('*')
+      .eq('id', broadcastId)
+      .single();
+
+    if (bcError) throw bcError;
+
+    const { data: recs, error: recsError } = await supabase
+      .from('broadcast_recipients')
+      .select('*, contact:contacts(*)')
+      .eq('broadcast_id', broadcastId)
+      .order('created_at', { ascending: false });
+
+    if (recsError) throw recsError;
+
+    setBroadcast(bc);
+    setRecipients(recs ?? []);
+  }
 
   useEffect(() => {
     async function fetchData() {
       try {
-        const supabase = createClient();
-
-        const { data: bc, error: bcError } = await supabase
-          .from('broadcasts')
-          .select('*')
-          .eq('id', broadcastId)
-          .single();
-
-        if (bcError) throw bcError;
-        setBroadcast(bc);
-
-        const { data: recs, error: recsError } = await supabase
-          .from('broadcast_recipients')
-          .select('*, contact:contacts(*)')
-          .eq('broadcast_id', broadcastId)
-          .order('created_at', { ascending: false });
-
-        if (recsError) throw recsError;
-        setRecipients(recs ?? []);
+        await loadBroadcastData();
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load broadcast');
       } finally {
@@ -188,13 +240,19 @@ export default function BroadcastDetailPage() {
     fetchData();
   }, [broadcastId]);
 
-  const filteredRecipients = useMemo(
-    () =>
-      statusFilter === 'all'
-        ? recipients
-        : recipients.filter((r) => r.status === statusFilter),
-    [recipients, statusFilter],
-  );
+  const filteredRecipients = useMemo(() => {
+    let list = recipients;
+    if (statusFilter !== 'all') {
+      list = list.filter((r) => r.status === statusFilter);
+    }
+    if (recipientSearch.trim()) {
+      list = list.filter((r) => recipientMatchesSearch(r, recipientSearch));
+    }
+    return list;
+  }, [recipients, statusFilter, recipientSearch]);
+
+  const hasRecipientFilters =
+    statusFilter !== 'all' || recipientSearch.trim().length > 0;
 
   function handleExport() {
     if (!broadcast) return;
@@ -242,6 +300,77 @@ export default function BroadcastDetailPage() {
     toast.success('Broadcast deleted');
     router.push('/broadcasts');
   }
+
+  async function handleResend(payload: BroadcastPersonalizePayload) {
+    setResending(true);
+    try {
+      const newId = await resendBroadcast(broadcastId, payload);
+      toast.success('Broadcast sent again');
+      setResendOpen(false);
+      router.push(`/broadcasts/${newId}`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to send again');
+    } finally {
+      setResending(false);
+    }
+  }
+
+  async function handleRetryRecipient(payload: BroadcastPersonalizePayload) {
+    if (!retryRecipient) return;
+    setRetryingRecipientId(retryRecipient.id);
+    try {
+      await retryBroadcastRecipient(broadcastId, retryRecipient.id, payload);
+      toast.success(
+        `Message sent again to ${retryRecipient.contact?.name ?? retryRecipient.contact?.phone ?? 'contact'}`,
+      );
+      setRetryRecipient(null);
+      await loadBroadcastData();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Retry failed');
+      await loadBroadcastData();
+    } finally {
+      setRetryingRecipientId(null);
+    }
+  }
+
+  function handleAddContactsSelected(contactIds: string[]) {
+    setPendingContactIds(contactIds);
+    setAddContactsOpen(false);
+    setAddPersonalizeOpen(true);
+  }
+
+  async function handleAddContactsConfirm(payload: BroadcastPersonalizePayload) {
+    if (pendingContactIds.length === 0) return;
+    setAddingContacts(true);
+    try {
+      const result = await addContactsToBroadcast(
+        broadcastId,
+        pendingContactIds,
+        payload,
+      );
+      toast.success(
+        `Added ${result.added} contact${result.added === 1 ? '' : 's'}${
+          result.skipped > 0 ? ` (${result.skipped} already in broadcast)` : ''
+        }`,
+      );
+      setAddPersonalizeOpen(false);
+      setPendingContactIds([]);
+      await loadBroadcastData();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to add contacts');
+      await loadBroadcastData();
+    } finally {
+      setAddingContacts(false);
+    }
+  }
+
+  const existingContactIds = useMemo(
+    () =>
+      recipients
+        .map((r) => r.contact_id)
+        .filter((id): id is string => Boolean(id)),
+    [recipients],
+  );
 
   if (loading) {
     return (
@@ -307,7 +436,46 @@ export default function BroadcastDetailPage() {
             "Delete Pipeline" flow. Mid-send broadcasts can't be deleted
             because orphaning in-flight Meta messages would leave the
             funnel inconsistent. */}
-        {confirmDelete ? (
+        <div className="flex items-center gap-2">
+          {canAddContactsToBroadcast(broadcast.status) && (
+            <GatedButton
+              canAct={canSend}
+              gateReason="add contacts to broadcasts"
+              variant="outline"
+              size="sm"
+              disabled={isProcessing || addingContacts || broadcast.status === 'sending'}
+              onClick={() => setAddContactsOpen(true)}
+              className="border-border text-muted-foreground hover:bg-muted"
+            >
+              {addingContacts ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <UserPlus className="h-3.5 w-3.5" />
+              )}
+              Add contacts
+            </GatedButton>
+          )}
+
+          {canResendBroadcast(broadcast.status) && (
+            <GatedButton
+              canAct={canSend}
+              gateReason="send broadcasts"
+              variant="outline"
+              size="sm"
+              disabled={isProcessing || resending || broadcast.status === 'sending'}
+              onClick={() => setResendOpen(true)}
+              className="border-border text-muted-foreground hover:bg-muted"
+            >
+              {resending ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <RotateCcw className="h-3.5 w-3.5" />
+              )}
+              Send again
+            </GatedButton>
+          )}
+
+          {confirmDelete ? (
           <div className="flex items-center gap-2 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-1.5 text-sm">
             <span className="text-red-300">Delete this broadcast?</span>
             <Button
@@ -345,6 +513,7 @@ export default function BroadcastDetailPage() {
             Delete
           </Button>
         )}
+        </div>
       </div>
 
       {/* Stats — 6 cards: Total / Sent / Delivered / Read / Replied / Failed */}
@@ -397,12 +566,22 @@ export default function BroadcastDetailPage() {
 
       {/* Recipients Table */}
       <div className="rounded-xl border border-border bg-card">
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-3">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3">
           <h2 className="text-sm font-medium text-foreground">
             Recipients ({filteredRecipients.length}
-            {statusFilter !== 'all' ? ` of ${recipients.length}` : ''})
+            {hasRecipientFilters ? ` of ${recipients.length}` : ''})
           </h2>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative w-full min-w-[200px] max-w-xs sm:w-56">
+              <Search className="absolute top-1/2 left-2.5 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={recipientSearch}
+                onChange={(e) => setRecipientSearch(e.target.value)}
+                placeholder="Search name or phone..."
+                className="h-8 border-border bg-card pl-8 text-foreground placeholder:text-muted-foreground"
+              />
+            </div>
+
             <DropdownMenu>
               <DropdownMenuTrigger
                 render={
@@ -462,7 +641,9 @@ export default function BroadcastDetailPage() {
             <p className="text-sm text-muted-foreground">
               {recipients.length === 0
                 ? 'No recipients found.'
-                : 'No recipients match this filter.'}
+                : recipientSearch.trim()
+                  ? 'No recipients match your search.'
+                  : 'No recipients match this filter.'}
             </p>
           </div>
         ) : (
@@ -477,11 +658,15 @@ export default function BroadcastDetailPage() {
                   <TableHead className="text-muted-foreground">Delivered</TableHead>
                   <TableHead className="text-muted-foreground">Read</TableHead>
                   <TableHead className="text-muted-foreground">Error</TableHead>
+                  <TableHead className="text-right text-muted-foreground">
+                    Actions
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filteredRecipients.map((recipient) => {
                   const rStatus = getRecipientStatus(recipient.status);
+                  const isRetrying = retryingRecipientId === recipient.id;
                   return (
                     <TableRow key={recipient.id} className="border-border">
                       <TableCell className="font-medium text-foreground">
@@ -515,6 +700,30 @@ export default function BroadcastDetailPage() {
                       <TableCell className="max-w-xs truncate text-xs text-red-400">
                         {recipient.error_message ?? '-'}
                       </TableCell>
+                      <TableCell className="text-right">
+                        {recipient.status === 'failed' && (
+                          <GatedButton
+                            canAct={canSend}
+                            gateReason="retry failed broadcasts"
+                            variant="outline"
+                            size="sm"
+                            disabled={
+                              isProcessing ||
+                              isRetrying ||
+                              broadcast.status === 'sending'
+                            }
+                            onClick={() => setRetryRecipient(recipient)}
+                            className="border-border text-muted-foreground hover:bg-muted"
+                          >
+                            {isRetrying ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <RotateCcw className="h-3.5 w-3.5" />
+                            )}
+                            Try again
+                          </GatedButton>
+                        )}
+                      </TableCell>
                     </TableRow>
                   );
                 })}
@@ -523,6 +732,57 @@ export default function BroadcastDetailPage() {
           </div>
         )}
       </div>
+
+      <BroadcastPersonalizeDialog
+        open={resendOpen}
+        onOpenChange={setResendOpen}
+        broadcast={broadcast}
+        title={`Send again — ${broadcast.name}`}
+        description="Review and update template placeholders before sending to the same audience."
+        confirmLabel="Send again"
+        submitting={resending}
+        onConfirm={handleResend}
+      />
+
+      <BroadcastPersonalizeDialog
+        open={retryRecipient !== null}
+        onOpenChange={(open) => {
+          if (!open) setRetryRecipient(null);
+        }}
+        broadcast={broadcast}
+        title={
+          retryRecipient
+            ? `Try again — ${retryRecipient.contact?.name ?? retryRecipient.contact?.phone ?? 'contact'}`
+            : 'Try again'
+        }
+        description="Update today's prices or other placeholder values, then resend to this contact only."
+        confirmLabel="Try again"
+        submitting={retryingRecipientId !== null}
+        onConfirm={handleRetryRecipient}
+      />
+
+      <BroadcastAddContactsDialog
+        open={addContactsOpen}
+        onOpenChange={setAddContactsOpen}
+        existingContactIds={existingContactIds}
+        onContinue={handleAddContactsSelected}
+      />
+
+      <BroadcastPersonalizeDialog
+        open={addPersonalizeOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            setAddPersonalizeOpen(false);
+            setPendingContactIds([]);
+          }
+        }}
+        broadcast={broadcast}
+        title={`Add contacts — ${broadcast.name}`}
+        description="Review and update template placeholders before sending to the new contacts."
+        confirmLabel={`Send to ${pendingContactIds.length} contact${pendingContactIds.length === 1 ? '' : 's'}`}
+        submitting={addingContacts}
+        onConfirm={handleAddContactsConfirm}
+      />
     </div>
   );
 }

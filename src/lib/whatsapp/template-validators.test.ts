@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+  applyUrlButtonVariable,
   extractVariableIndices,
+  normalizeUrlVariablePlaceholders,
   TEMPLATE_LIMITS,
   validateBody,
   validateButtons,
@@ -25,6 +27,36 @@ describe('extractVariableIndices', () => {
   });
   it('returns empty array for no variables', () => {
     expect(extractVariableIndices('No vars here')).toEqual([]);
+  });
+  it('detects variables in percent-encoded URL button templates', () => {
+    expect(
+      extractVariableIndices(
+        'https://shop.example/products/%7B%7B1%7D%7D',
+      ),
+    ).toEqual([1]);
+  });
+});
+
+describe('normalizeUrlVariablePlaceholders', () => {
+  it('decodes %7B%7B1%7D%7D to {{1}}', () => {
+    expect(
+      normalizeUrlVariablePlaceholders(
+        'https://shop.example/products/%7B%7B1%7D%7D',
+      ),
+    ).toBe('https://shop.example/products/{{1}}');
+  });
+});
+
+describe('applyUrlButtonVariable', () => {
+  it('builds the final URL from an encoded template URL + slug', () => {
+    expect(
+      applyUrlButtonVariable(
+        'https://pradeepjewellers.in/products/%7B%7B1%7D%7D',
+        'kaira-harmony-ring-for-women-abc123',
+      ),
+    ).toBe(
+      'https://pradeepjewellers.in/products/kaira-harmony-ring-for-women-abc123',
+    );
   });
 });
 
