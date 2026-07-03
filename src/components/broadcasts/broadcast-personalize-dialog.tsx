@@ -21,6 +21,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { Eye, ImageIcon, Loader2, Send } from 'lucide-react';
 import { resolveHeaderMediaUrl } from '@/lib/whatsapp/template-header-media';
 
 type VariableType = 'static' | 'field' | 'custom_field';
