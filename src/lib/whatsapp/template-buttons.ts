@@ -26,6 +26,8 @@ export function templateButtonTypeLabel(type: TemplateButton['type']): string {
       return 'Phone';
     case 'COPY_CODE':
       return 'Copy Code';
+    case 'CATALOG':
+      return 'Catalog';
     case 'FLOW':
       return 'Flow';
     case 'PAYMENT_REQUEST':

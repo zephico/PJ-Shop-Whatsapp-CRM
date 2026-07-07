@@ -61,7 +61,7 @@ export type MetaSendComponent =
   | { type: 'body'; parameters: MetaSendParameter[] }
   | {
       type: 'button';
-      sub_type: 'url' | 'quick_reply' | 'copy_code' | 'flow';
+      sub_type: 'url' | 'quick_reply' | 'copy_code' | 'flow' | 'catalog';
       index: string;
       parameters: MetaSendParameter[];
     };
@@ -172,6 +172,11 @@ function buttonNeedsSendParam(
     case 'FLOW':
       // Meta requires a flow button component on every send.
       return true;
+    case 'CATALOG':
+      // Catalog template buttons are interactive-template buttons and
+      // must be present in the send payload even though they carry no
+      // caller-supplied parameters.
+      return true;
     case 'PAYMENT_REQUEST':
     case 'OTP':
     case 'META':
@@ -191,8 +196,6 @@ function buildButtonComponent(
 
   switch (button.type) {
     case 'URL': {
-      // Each URL button is its own component with sub_type=url and
-      // the button's index in the template's buttons array.
       if (!override || !override.trim()) {
         throw new Error(
           `URL button #${index + 1} uses {{1}} — requires a buttonParams[${index}] value.`,
@@ -257,6 +260,13 @@ function buildButtonComponent(
         ],
       };
     }
+    case 'CATALOG':
+      return {
+        type: 'button',
+        sub_type: 'catalog',
+        index: String(index),
+        parameters: [],
+      };
     case 'PAYMENT_REQUEST':
       throw new Error(
         `Template button "${button.text}" is a Meta payment button (Review and Pay). ` +

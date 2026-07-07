@@ -59,12 +59,12 @@ describe('parseMetaButtons', () => {
     expect(sendNotes[0]).toMatch(/payment/i);
   });
 
-  it('stores unknown Meta types as META for display', () => {
+  it('parses catalog buttons as a sendable first-class type', () => {
     const { buttons } = parseMetaButtons([
       { type: 'CATALOG', text: 'View catalog' },
     ]);
     expect(buttons).toEqual([
-      { type: 'META', text: 'View catalog', meta_type: 'CATALOG' },
+      { type: 'CATALOG', text: 'View catalog' },
     ]);
   });
 });

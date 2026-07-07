@@ -284,6 +284,22 @@ describe('buildSendComponents — buttons', () => {
     });
   });
 
+  it('emits a CATALOG button component without parameters', () => {
+    const components = buildSendComponents(
+      row({
+        buttons: [{ type: 'CATALOG', text: 'View catalog' }],
+      }),
+    );
+    expect(components).toEqual([
+      {
+        type: 'button',
+        sub_type: 'catalog',
+        index: '0',
+        parameters: [],
+      },
+    ]);
+  });
+
   it('throws for PAYMENT_REQUEST buttons with a clear message', () => {
     expect(() =>
       buildSendComponents(

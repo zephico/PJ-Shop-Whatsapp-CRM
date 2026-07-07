@@ -245,6 +245,8 @@ export type TemplateButton =
   | { type: 'URL'; text: string; url: string; example?: string }
   | { type: 'PHONE_NUMBER'; text: string; phone_number: string }
   | { type: 'COPY_CODE'; text: string; example: string }
+  /** Synced from Meta — opens the business product catalog in WhatsApp. */
+  | { type: 'CATALOG'; text: string }
   /** Synced from Meta — opens a WhatsApp Flow when the template is sent. */
   | {
       type: 'FLOW';

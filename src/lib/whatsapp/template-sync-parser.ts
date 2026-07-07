@@ -90,6 +90,11 @@ export function parseMetaButtons(
           });
         }
         break;
+      case 'CATALOG':
+        if (text) {
+          buttons.push({ type: 'CATALOG', text });
+        }
+        break;
       case 'FLOW':
         if (text) {
           buttons.push({
