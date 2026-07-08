@@ -18,7 +18,10 @@ export function getTelegramConfig(): TelegramConfig {
     botToken: process.env.TELEGRAM_BOT_TOKEN?.trim() || null,
     allowedChatIds: splitCsv(process.env.TELEGRAM_ALLOWED_CHAT_IDS),
     allowedUserIds: splitCsv(process.env.TELEGRAM_ALLOWED_USER_IDS),
-    webhookSecret: process.env.TELEGRAM_WEBHOOK_SECRET?.trim() || null,
+    webhookSecret:
+      process.env.TELEGRAM_WEBHOOK_SECRET?.trim() ||
+      process.env.NEXT_PUBLIC_TELEGRAM_WEBHOOK_SECRET?.trim() ||
+      null,
     appUrl:
       process.env.NEXT_PUBLIC_APP_URL?.trim() ||
       process.env.NEXT_PUBLIC_SITE_URL?.trim() ||
