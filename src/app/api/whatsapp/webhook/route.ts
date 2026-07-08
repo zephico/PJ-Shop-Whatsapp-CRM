@@ -7,6 +7,7 @@ import { findExistingContact, isUniqueViolation } from '@/lib/contacts/dedupe'
 import { verifyMetaWebhookSignature } from '@/lib/whatsapp/webhook-signature'
 import { runAutomationsForTrigger } from '@/lib/automations/engine'
 import { dispatchInboundToFlows } from '@/lib/flows/engine'
+import { notifyTelegramIncomingMessage } from '@/lib/telegram/notifier'
 import {
   handleTemplateWebhookChange,
   isTemplateWebhookField,
@@ -617,6 +618,23 @@ async function processMessage(
   if (convError) {
     console.error('Error updating conversation:', convError)
   }
+
+  void notifyTelegramIncomingMessage({
+    accountId,
+    conversationId: conversation.id,
+    contactId: contactRecord.id,
+    contactName: contactRecord.name ?? contactName,
+    contactPhone: contactRecord.phone,
+    contentType,
+    contentText,
+    whatsappMessageId: message.id,
+  }).catch((error) => {
+    console.error('[telegram] inbound notification failed:', {
+      conversationId: conversation.id,
+      whatsappMessageId: message.id,
+      error: error instanceof Error ? error.message : error,
+    })
+  })
 
   // If this contact was a recent broadcast recipient, flag the reply
   // so the broadcast's `replied_count` advances (via the aggregate
