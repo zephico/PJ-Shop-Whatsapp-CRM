@@ -39,6 +39,8 @@ export interface TemplateSendValues {
   headerText?: string;
   headerMediaUrl?: string;
   headerMediaId?: string;
+  thumbnailProductRetailerId?: string;
+  productRetailerIds?: string[];
   buttonParams?: Record<number, string>;
 }
 
@@ -72,6 +74,7 @@ function collectVariableSlots(template: MessageTemplate): {
   headerVarCount: number;
   urlButtonSlots: UrlButtonSlot[];
   mediaHeaderType: "image" | "video" | "document" | null;
+  needsCatalogThumbnail: boolean;
 } {
   const bodyVars = extractVariableIndices(template.body_text);
   const headerVarCount =
@@ -87,7 +90,16 @@ function collectVariableSlots(template: MessageTemplate): {
   const mediaHeaderType = isMediaHeaderType(template.header_type)
     ? template.header_type
     : null;
-  return { bodyVars, headerVarCount, urlButtonSlots, mediaHeaderType };
+  const needsCatalogThumbnail = (template.buttons ?? []).some(
+    (button) => button.type === "CATALOG" || button.type === "MPM",
+  );
+  return {
+    bodyVars,
+    headerVarCount,
+    urlButtonSlots,
+    mediaHeaderType,
+    needsCatalogThumbnail,
+  };
 }
 
 function templateNeedsSendForm(template: MessageTemplate): boolean {
@@ -96,7 +108,8 @@ function templateNeedsSendForm(template: MessageTemplate): boolean {
     slots.bodyVars.length > 0 ||
     slots.headerVarCount > 0 ||
     slots.urlButtonSlots.length > 0 ||
-    slots.mediaHeaderType !== null
+    slots.mediaHeaderType !== null ||
+    slots.needsCatalogThumbnail
   );
 }
 
@@ -129,6 +142,8 @@ export function TemplatePicker({
   const [headerText, setHeaderText] = useState<string>("");
   const [headerMediaUrl, setHeaderMediaUrl] = useState<string>("");
   const [headerMediaId, setHeaderMediaId] = useState<string>("");
+  const [thumbnailProductRetailerId, setThumbnailProductRetailerId] =
+    useState<string>("");
   const [buttonParams, setButtonParams] = useState<Record<number, string>>({});
   const [headerMediaError, setHeaderMediaError] = useState<string | null>(null);
 
@@ -194,6 +209,7 @@ export function TemplatePicker({
     setHeaderText("");
     setHeaderMediaUrl("");
     setHeaderMediaId("");
+    setThumbnailProductRetailerId("");
     setButtonParams({});
     setHeaderMediaError(null);
   }
@@ -217,6 +233,7 @@ export function TemplatePicker({
       resolveHeaderMediaUrl(template.header_media_url?.trim() ?? ""),
     );
     setHeaderMediaId("");
+    setThumbnailProductRetailerId(template.product_retailer_ids?.[0] ?? "");
     setButtonParams({});
     setHeaderMediaError(null);
   }
@@ -229,6 +246,10 @@ export function TemplatePicker({
     const mediaId = headerMediaId.trim();
     if (mediaUrl) values.headerMediaUrl = mediaUrl;
     if (mediaId) values.headerMediaId = mediaId;
+    if (thumbnailProductRetailerId.trim()) {
+      values.thumbnailProductRetailerId = thumbnailProductRetailerId.trim();
+      values.productRetailerIds = [thumbnailProductRetailerId.trim()];
+    }
     if (Object.keys(buttonParams).length > 0) {
       values.buttonParams = Object.fromEntries(
         Object.entries(buttonParams).map(([k, v]) => [Number(k), v.trim()]),
@@ -250,6 +271,8 @@ export function TemplatePicker({
     slots.urlButtonSlots.every(
       (s) => (buttonParams[s.index] ?? "").trim().length > 0,
     ) &&
+    (!slots.needsCatalogThumbnail ||
+      thumbnailProductRetailerId.trim().length > 0) &&
     isHeaderMediaUrlValid(
       slots.mediaHeaderType,
       headerMediaUrl,
@@ -417,6 +440,25 @@ export function TemplatePicker({
                 />
               </div>
             ))}
+            {slots?.needsCatalogThumbnail && (
+              <div className="space-y-1">
+                <Label className="text-xs text-popover-foreground">
+                  Catalog thumbnail product retailer ID
+                </Label>
+                <Input
+                  value={thumbnailProductRetailerId}
+                  onChange={(e) =>
+                    setThumbnailProductRetailerId(e.target.value)
+                  }
+                  placeholder="A product retailer ID from your Meta catalog"
+                  className="border-border bg-muted text-foreground placeholder:text-muted-foreground"
+                />
+                <p className="text-[10px] text-muted-foreground">
+                  Required by Meta for catalog-style template buttons. Use a
+                  valid product retailer ID from Commerce Manager.
+                </p>
+              </div>
+            )}
             {slots?.urlButtonSlots.map((slot) => (
               <div key={slot.index} className="space-y-1">
                 <Label className="text-xs text-popover-foreground">

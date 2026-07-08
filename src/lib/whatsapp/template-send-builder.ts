@@ -47,6 +47,15 @@ export interface SendTimeParams {
   headerMediaUrl?: string;
   /** Alternative: send the media by Meta media id (from prior upload). */
   headerMediaId?: string;
+  /** Required by Meta for catalog-style template buttons. */
+  thumbnailProductRetailerId?: string;
+  /** Optional shorthand for multi-product sends. */
+  productRetailerIds?: string[];
+  /** Richer multi-product input for future callers. */
+  catalogSections?: Array<{
+    title: string;
+    product_retailer_ids: string[];
+  }>;
   /**
    * Per-button overrides keyed by the button's index in the
    * template's `buttons` array. Used for URL buttons with a {{1}}
@@ -61,7 +70,7 @@ export type MetaSendComponent =
   | { type: 'body'; parameters: MetaSendParameter[] }
   | {
       type: 'button';
-      sub_type: 'url' | 'quick_reply' | 'copy_code' | 'flow' | 'catalog';
+      sub_type: 'url' | 'quick_reply' | 'copy_code' | 'flow' | 'CATALOG' | 'mpm';
       index: string;
       parameters: MetaSendParameter[];
     };
@@ -78,8 +87,67 @@ type MetaSendParameter =
       action: {
         flow_token?: string;
         flow_action_data?: Record<string, unknown>;
+        thumbnail_product_retailer_id?: string;
+        sections?: Array<{
+          title: string;
+          product_items: Array<{ product_retailer_id: string }>;
+        }>;
       };
     };
+
+function resolveThumbnailProductRetailerId(
+  template: MessageTemplate,
+  params: SendTimeParams,
+): string {
+  const value =
+    params.thumbnailProductRetailerId?.trim() ??
+    template.product_retailer_ids?.[0]?.trim() ??
+    '';
+  if (!value) {
+    throw new Error(
+      `Template "${template.name}" requires a thumbnail_product_retailer_id for its catalog button.`,
+    );
+  }
+  return value;
+}
+
+function resolveCatalogSections(
+  template: MessageTemplate,
+  params: SendTimeParams,
+): Array<{ title: string; product_items: Array<{ product_retailer_id: string }> }> {
+  const explicit = params.catalogSections?.filter(
+    (section) =>
+      section.title.trim().length > 0 &&
+      section.product_retailer_ids.some((id) => id.trim().length > 0),
+  );
+  if (explicit && explicit.length > 0) {
+    return explicit.map((section) => ({
+      title: section.title.trim(),
+      product_items: section.product_retailer_ids
+        .map((id) => id.trim())
+        .filter(Boolean)
+        .map((product_retailer_id) => ({ product_retailer_id })),
+    }));
+  }
+
+  const fallback = (params.productRetailerIds ?? template.product_retailer_ids ?? [])
+    .map((id) => id.trim())
+    .filter(Boolean);
+  if (fallback.length > 0) {
+    return [
+      {
+        title: 'Products',
+        product_items: fallback.map((product_retailer_id) => ({
+          product_retailer_id,
+        })),
+      },
+    ];
+  }
+
+  throw new Error(
+    `Template "${template.name}" requires product retailer ids for its multi-product button.`,
+  );
+}
 
 function buildHeaderComponent(
   template: MessageTemplate,
@@ -175,7 +243,9 @@ function buttonNeedsSendParam(
     case 'CATALOG':
       // Catalog template buttons are interactive-template buttons and
       // must be present in the send payload even though they carry no
-      // caller-supplied parameters.
+      // traditional text params.
+      return true;
+    case 'MPM':
       return true;
     case 'PAYMENT_REQUEST':
     case 'OTP':
@@ -188,8 +258,10 @@ function buttonNeedsSendParam(
 }
 
 function buildButtonComponent(
+  template: MessageTemplate,
   button: TemplateButton,
   index: number,
+  params: SendTimeParams,
   override: string | undefined,
 ): MetaSendComponent | null {
   if (!buttonNeedsSendParam(button, override)) return null;
@@ -263,9 +335,37 @@ function buildButtonComponent(
     case 'CATALOG':
       return {
         type: 'button',
-        sub_type: 'catalog',
+        sub_type: 'CATALOG',
         index: String(index),
-        parameters: [],
+        parameters: [
+          {
+            type: 'action',
+            action: {
+              thumbnail_product_retailer_id: resolveThumbnailProductRetailerId(
+                template,
+                params,
+              ),
+            },
+          },
+        ],
+      };
+    case 'MPM':
+      return {
+        type: 'button',
+        sub_type: 'mpm',
+        index: String(index),
+        parameters: [
+          {
+            type: 'action',
+            action: {
+              thumbnail_product_retailer_id: resolveThumbnailProductRetailerId(
+                template,
+                params,
+              ),
+              sections: resolveCatalogSections(template, params),
+            },
+          },
+        ],
       };
     case 'PAYMENT_REQUEST':
       throw new Error(
@@ -304,7 +404,7 @@ export function buildSendComponents(
   if (template.buttons?.length) {
     template.buttons.forEach((btn, i) => {
       const override = params.buttonParams?.[i];
-      const component = buildButtonComponent(btn, i, override);
+      const component = buildButtonComponent(template, btn, i, params, override);
       if (component) out.push(component);
     });
   }

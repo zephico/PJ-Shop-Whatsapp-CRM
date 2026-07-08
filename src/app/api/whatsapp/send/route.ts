@@ -25,6 +25,16 @@ import { buildSendComponents } from '@/lib/whatsapp/template-send-builder'
 import { extractVariableIndices } from '@/lib/whatsapp/template-validators'
 import { formatMetaApiError } from '@/lib/whatsapp/meta-send-errors'
 
+function inferTemplateFormat(template: MessageTemplate): string {
+  if (template.template_format) return template.template_format
+  if (template.buttons?.some((button) => button.type === 'MPM')) return 'multi_product'
+  if (template.buttons?.some((button) => button.type === 'CATALOG')) return 'catalog'
+  if (template.header_type === 'image') return 'image'
+  if (template.header_type === 'video') return 'video'
+  if (template.header_type === 'document') return 'document'
+  return 'text'
+}
+
 export async function POST(request: Request) {
   try {
     const supabase = await createClient()
@@ -286,6 +296,18 @@ export async function POST(request: Request) {
         )
       }
 
+      const requestedLanguage = template_language || templateRow.language || 'en_US'
+      if (requestedLanguage !== templateRow.language) {
+        return NextResponse.json(
+          {
+            error:
+              `Template "${template_name}" is approved as ${templateRow.language}. ` +
+              `Send that exact Meta language code instead of ${requestedLanguage}.`,
+          },
+          { status: 400 },
+        )
+      }
+
       if (templateRow.status !== 'APPROVED') {
         return NextResponse.json(
           {
@@ -299,8 +321,13 @@ export async function POST(request: Request) {
 
       const bodyParams =
         template_message_params?.body ?? template_params ?? []
+      const templateFormat = inferTemplateFormat(templateRow)
       const varCount = extractVariableIndices(templateRow.body_text).length
-      if (bodyParams.length < varCount) {
+      if (
+        templateFormat !== 'catalog' &&
+        templateFormat !== 'multi_product' &&
+        bodyParams.length < varCount
+      ) {
         return NextResponse.json(
           {
             error:
@@ -317,6 +344,10 @@ export async function POST(request: Request) {
           headerText: template_message_params?.headerText,
           headerMediaUrl: template_message_params?.headerMediaUrl,
           headerMediaId: template_message_params?.headerMediaId,
+          thumbnailProductRetailerId:
+            template_message_params?.thumbnailProductRetailerId,
+          productRetailerIds: template_message_params?.productRetailerIds,
+          catalogSections: template_message_params?.catalogSections,
           buttonParams: template_message_params?.buttonParams,
         })
       } catch (buildErr) {
@@ -328,13 +359,15 @@ export async function POST(request: Request) {
 
     const attempt = async (phone: string): Promise<string> => {
       if (message_type === 'template') {
+        const templateFormat = templateRow ? inferTemplateFormat(templateRow) : 'text'
         const result = await sendTemplateMessage({
           phoneNumberId: config.phone_number_id,
           accessToken,
           to: phone,
           templateName: template_name,
-          language: template_language || 'en_US',
+          language: templateRow?.language || template_language || 'en_US',
           template: templateRow ?? undefined,
+          templateFormat,
           messageParams: template_message_params ?? undefined,
           // Legacy body-only fallback — only consulted when
           // messageParams.body isn't set.

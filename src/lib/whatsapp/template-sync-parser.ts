@@ -95,6 +95,11 @@ export function parseMetaButtons(
           buttons.push({ type: 'CATALOG', text });
         }
         break;
+      case 'MPM':
+        if (text) {
+          buttons.push({ type: 'MPM', text });
+        }
+        break;
       case 'FLOW':
         if (text) {
           buttons.push({

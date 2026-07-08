@@ -39,6 +39,9 @@ async function throwMetaError(response: Response, fallback: string): Promise<nev
   let message = fallback
   try {
     const data = (await response.json()) as MetaErrorResponse
+    if (process.env.NODE_ENV === 'development') {
+      console.debug('[whatsapp] meta error response', JSON.stringify(data, null, 2))
+    }
     message = metaErrorFromBody(data, fallback)
   } catch {
     // response body wasn't JSON — keep the fallback
@@ -366,6 +369,7 @@ export interface SendTemplateMessageArgs {
    * in `buttonParams` keyed by index.
    */
   messageParams?: SendTimeParams
+  templateFormat?: string
   /** Meta's message_id of the message being replied to. */
   contextMessageId?: string
 }
@@ -393,6 +397,7 @@ export async function sendTemplateMessage(
     params,
     template,
     messageParams,
+    templateFormat,
     contextMessageId,
   } = args
   const url = `${META_API_BASE}/${phoneNumberId}/messages`
@@ -445,7 +450,18 @@ export async function sendTemplateMessage(
     body: JSON.stringify(body),
   })
   if (process.env.NODE_ENV === 'development') {
-    console.debug('[whatsapp] template send payload', JSON.stringify(body, null, 2))
+    console.debug(
+      '[whatsapp] template send payload',
+      JSON.stringify(
+        {
+          template_name: templateName,
+          template_format: templateFormat ?? template?.template_format ?? 'text',
+          payload: body,
+        },
+        null,
+        2,
+      ),
+    )
   }
   if (!response.ok) {
     await throwMetaError(response, `Meta API error: ${response.status}`)

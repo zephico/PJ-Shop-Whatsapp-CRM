@@ -289,13 +289,60 @@ describe('buildSendComponents — buttons', () => {
       row({
         buttons: [{ type: 'CATALOG', text: 'View catalog' }],
       }),
+      { thumbnailProductRetailerId: 'sku-123' },
     );
     expect(components).toEqual([
       {
         type: 'button',
-        sub_type: 'catalog',
+        sub_type: 'CATALOG',
         index: '0',
-        parameters: [],
+        parameters: [
+          {
+            type: 'action',
+            action: { thumbnail_product_retailer_id: 'sku-123' },
+          },
+        ],
+      },
+    ]);
+  });
+
+  it('emits an MPM button component with sections', () => {
+    const components = buildSendComponents(
+      row({
+        buttons: [{ type: 'MPM', text: 'Browse collection' }],
+      }),
+      {
+        thumbnailProductRetailerId: 'sku-hero',
+        catalogSections: [
+          {
+            title: 'Featured',
+            product_retailer_ids: ['sku-1', 'sku-2'],
+          },
+        ],
+      },
+    );
+    expect(components).toEqual([
+      {
+        type: 'button',
+        sub_type: 'mpm',
+        index: '0',
+        parameters: [
+          {
+            type: 'action',
+            action: {
+              thumbnail_product_retailer_id: 'sku-hero',
+              sections: [
+                {
+                  title: 'Featured',
+                  product_items: [
+                    { product_retailer_id: 'sku-1' },
+                    { product_retailer_id: 'sku-2' },
+                  ],
+                },
+              ],
+            },
+          },
+        ],
       },
     ]);
   });

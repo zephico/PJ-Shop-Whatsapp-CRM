@@ -37,6 +37,22 @@ interface MetaTemplate {
   quality_score?: { score?: string } | string
 }
 
+function inferTemplateFormat(args: {
+  headerType: string | null
+  buttons: Array<{ type: string }>
+}): 'text' | 'image' | 'video' | 'document' | 'catalog' | 'multi_product' {
+  if (args.buttons.some((button) => button.type === 'MPM')) return 'multi_product'
+  if (args.buttons.some((button) => button.type === 'CATALOG')) return 'catalog'
+  if (
+    args.headerType === 'image' ||
+    args.headerType === 'video' ||
+    args.headerType === 'document'
+  ) {
+    return args.headerType
+  }
+  return 'text'
+}
+
 function normalizeCategory(
   meta: string,
 ): 'Marketing' | 'Utility' | 'Authentication' {
@@ -207,6 +223,12 @@ export async function POST() {
         header_type: headerType,
         header_content: header?.text ?? null,
         header_handle: header?.example?.header_handle?.[0] ?? null,
+        template_format: inferTemplateFormat({
+          headerType,
+          buttons: parsedButtons,
+        }),
+        catalog_id: null,
+        product_retailer_ids: null,
         body_text: body?.text ?? '',
         footer_text: footer?.text ?? null,
         buttons: parsedButtons.length ? parsedButtons : null,
@@ -219,7 +241,7 @@ export async function POST() {
 
       const { data: existing, error: lookupErr } = await supabase
         .from('message_templates')
-        .select('id')
+        .select('id, catalog_id, product_retailer_ids')
         .eq('account_id', accountId)
         .eq('name', t.name)
         .eq('language', t.language)
@@ -237,7 +259,11 @@ export async function POST() {
       if (existing?.id) {
         const { error: updErr } = await supabase
           .from('message_templates')
-          .update(row)
+          .update({
+            ...row,
+            catalog_id: existing.catalog_id ?? null,
+            product_retailer_ids: existing.product_retailer_ids ?? null,
+          })
           .eq('id', existing.id)
         if (updErr) {
           errors.push({

@@ -28,6 +28,8 @@ export function templateButtonTypeLabel(type: TemplateButton['type']): string {
       return 'Copy Code';
     case 'CATALOG':
       return 'Catalog';
+    case 'MPM':
+      return 'Multi-product';
     case 'FLOW':
       return 'Flow';
     case 'PAYMENT_REQUEST':

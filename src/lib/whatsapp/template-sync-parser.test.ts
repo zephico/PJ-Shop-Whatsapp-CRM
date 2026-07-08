@@ -67,4 +67,13 @@ describe('parseMetaButtons', () => {
       { type: 'CATALOG', text: 'View catalog' },
     ]);
   });
+
+  it('parses multi-product buttons as a sendable first-class type', () => {
+    const { buttons } = parseMetaButtons([
+      { type: 'MPM', text: 'Browse collection' },
+    ]);
+    expect(buttons).toEqual([
+      { type: 'MPM', text: 'Browse collection' },
+    ]);
+  });
 });

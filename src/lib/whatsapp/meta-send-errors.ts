@@ -22,6 +22,10 @@ export function formatMetaApiError(raw: string): string {
     parts.push(
       'Image/video/document headers need a public HTTPS URL at send time. Set Header Image URL in the template picker.',
     )
+  } else if (raw.includes('131009') || /thumbnail_product_retailer_id|catalog/i.test(raw)) {
+    parts.push(
+      'Catalog templates need a valid thumbnail product retailer id from the connected Commerce catalog, and the exact approved template language code.',
+    )
   }
 
   return parts.join(' ')
