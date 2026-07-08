@@ -15,7 +15,12 @@ export async function GET(
 
   if (!isTelegramEnabled(config) || !config.botToken) {
     return NextResponse.json(
-      { error: "Telegram integration is not configured" },
+      {
+        error: "Telegram integration is not configured",
+        hasBotToken: Boolean(config.botToken),
+        allowedChatIdsCount: config.allowedChatIds.length,
+        hasWebhookSecret: Boolean(config.webhookSecret),
+      },
       { status: 503 },
     );
   }
