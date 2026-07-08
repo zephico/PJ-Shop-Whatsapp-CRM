@@ -11,6 +11,7 @@ import { ContactSidebar } from "@/components/inbox/contact-sidebar";
 import { toast } from "sonner";
 import { WifiOff } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useIncomingNotifications } from "@/hooks/use-incoming-notifications";
 
 // Remembers the agent's show/hide choice for the desktop contact panel
 // across reloads and sessions (device-scoped, like the theme prefs).
@@ -52,6 +53,7 @@ export default function InboxPage() {
    * below reconciles to the stored value right after mount instead.
    */
   const [contactPanelOpen, setContactPanelOpen] = useState(true);
+  const { notifyIncomingMessage } = useIncomingNotifications();
   useEffect(() => {
     try {
       const stored = localStorage.getItem(CONTACT_PANEL_STORAGE_KEY);
@@ -201,6 +203,17 @@ export default function InboxPage() {
       const newMsg = event.new;
 
       if (event.eventType === "INSERT") {
+        const matchedConversation = conversations.find(
+          (conversation) => conversation.id === newMsg.conversation_id,
+        );
+        notifyIncomingMessage({
+          messageId: newMsg.id,
+          conversationId: newMsg.conversation_id,
+          senderType: newMsg.sender_type,
+          contactName: matchedConversation?.contact?.name ?? null,
+          previewText: newMsg.content_text ?? null,
+        });
+
         // Add to messages if it belongs to active conversation
         if (
           activeConversation &&
@@ -255,7 +268,7 @@ export default function InboxPage() {
         );
       }
     },
-    [activeConversation, hydrateConversation]
+    [activeConversation, conversations, hydrateConversation, notifyIncomingMessage]
   );
 
   // Handle realtime conversation events
