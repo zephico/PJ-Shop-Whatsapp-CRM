@@ -4,6 +4,7 @@ import { getLatestGoldRates } from '@/lib/whatsapp/external-gold-rates'
 
 type PreferredLanguage = 'en' | 'hi' | 'gu'
 type ConversationState = 'AWAITING_LANGUAGE_SELECTION' | 'MAIN_MENU'
+const BROWSE_JEWELLERY_URL = 'https://pradeepjewellers.in/products'
 
 const LANGUAGE_BUTTON_IDS = ['LANG_EN', 'LANG_HI', 'LANG_GU'] as const
 const MAIN_MENU_BUTTON_IDS = [
@@ -98,11 +99,11 @@ function menuReplyCopy(language: PreferredLanguage, replyId: string): string {
   if (replyId === 'MENU_BROWSE_JEWELLERY') {
     switch (language) {
       case 'hi':
-        return 'ज़रूर. हमारी टीम आपको jewellery collections देखने में जल्द मदद करेगी.'
+        return `💎 कलेक्शन देखें\n${BROWSE_JEWELLERY_URL}`
       case 'gu':
-        return 'હા જરૂર. અમારી ટીમ તમને jewellery collections જોવા માટે જલ્દી મદદ કરશે.'
+        return `💎 કલેક્શન જુઓ\n${BROWSE_JEWELLERY_URL}`
       default:
-        return 'Sure. Our team will help you explore jewellery collections shortly.'
+        return `💎 View Collection\n${BROWSE_JEWELLERY_URL}`
     }
   }
 
