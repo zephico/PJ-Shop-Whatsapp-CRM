@@ -1,5 +1,6 @@
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { engineSendInteractiveButtons, engineSendText } from '@/lib/flows/meta-send'
+import { getLatestGoldRates } from '@/lib/whatsapp/external-gold-rates'
 
 type PreferredLanguage = 'en' | 'hi' | 'gu'
 type ConversationState = 'AWAITING_LANGUAGE_SELECTION' | 'MAIN_MENU'
@@ -126,6 +127,38 @@ function menuReplyCopy(language: PreferredLanguage, replyId: string): string {
   }
 }
 
+function formatGoldRatesMessage(
+  language: PreferredLanguage,
+  rates: Awaited<ReturnType<typeof getLatestGoldRates>>
+): string {
+  const line22 =
+    rates.rate22k
+      ? `22K Gold: INR ${rates.rate22k.price}/${rates.rate22k.unit.replace('_', ' ')}`
+      : language === 'hi'
+        ? '22K Gold: उपलब्ध नहीं'
+        : language === 'gu'
+          ? '22K Gold: ઉપલબ્ધ નથી'
+          : '22K Gold: unavailable'
+
+  const line24 =
+    rates.rate24k
+      ? `24K Gold: INR ${rates.rate24k.price}/${rates.rate24k.unit.replace('_', ' ')}`
+      : language === 'hi'
+        ? '24K Gold: उपलब्ध नहीं'
+        : language === 'gu'
+          ? '24K Gold: ઉપલબ્ધ નથી'
+          : '24K Gold: unavailable'
+
+  switch (language) {
+    case 'hi':
+      return `आज के gold rates:\n${line22}\n${line24}`
+    case 'gu':
+      return `આજના gold rates:\n${line22}\n${line24}`
+    default:
+      return `Today's gold rates:\n${line22}\n${line24}`
+  }
+}
+
 async function updateContactState(
   contactId: string,
   accountId: string,
@@ -202,7 +235,19 @@ async function sendMenuReply(args: {
   language: PreferredLanguage
   replyId: string
 }) {
-  const text = menuReplyCopy(args.language, args.replyId)
+  let text = menuReplyCopy(args.language, args.replyId)
+  if (args.replyId === 'MENU_GOLD_RATE') {
+    try {
+      const rates = await getLatestGoldRates()
+      text = formatGoldRatesMessage(args.language, rates)
+    } catch (error) {
+      console.error('[phase1] failed to load external gold rates:', {
+        conversationId: args.conversationId,
+        contactId: args.contactId,
+        error: error instanceof Error ? error.message : error,
+      })
+    }
+  }
   logDev('[phase1] sending menu follow-up', {
     conversationId: args.conversationId,
     contactId: args.contactId,
