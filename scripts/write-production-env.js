@@ -15,7 +15,8 @@ const REQUIRED_VARS = [
   'SUPABASE_SERVICE_ROLE_KEY',
   'ENCRYPTION_KEY',
   'META_APP_SECRET',
-  'GOLD_RATES_DATABASE_URL',
+  'GOLD_RATES_SUPABASE_URL',
+  'GOLD_RATES_SUPABASE_SERVICE_ROLE_KEY',
 ]
 
 const missing = REQUIRED_VARS.filter((name) => !process.env[name]?.trim())
