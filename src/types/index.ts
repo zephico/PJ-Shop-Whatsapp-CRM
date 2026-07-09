@@ -98,6 +98,8 @@ export interface Contact {
   email?: string;
   company?: string;
   avatar_url?: string;
+  preferred_language?: "en" | "hi" | "gu" | null;
+  conversation_state?: "AWAITING_LANGUAGE_SELECTION" | "MAIN_MENU" | null;
   created_at: string;
   updated_at: string;
 }
