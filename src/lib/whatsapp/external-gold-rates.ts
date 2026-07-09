@@ -14,8 +14,25 @@ export interface LatestGoldRates {
 
 let pool: Pool | null = null
 
+function normalizeConnectionString(connectionString: string): string {
+  const url = new URL(connectionString)
+  const sslMode = url.searchParams.get('sslmode')
+
+  // Supabase pooler connections on Amplify can surface a self-signed
+  // certificate chain during TLS verification. Force no-verify here so
+  // operators can keep the standard pooled connection URL in env config.
+  if (!sslMode || sslMode === 'require') {
+    url.searchParams.set('sslmode', 'no-verify')
+  }
+
+  return url.toString()
+}
+
 function getPool(): Pool {
-  const connectionString = process.env.GOLD_RATES_DATABASE_URL?.trim()
+  const rawConnectionString = process.env.GOLD_RATES_DATABASE_URL?.trim()
+  const connectionString = rawConnectionString
+    ? normalizeConnectionString(rawConnectionString)
+    : null
   if (!connectionString) {
     throw new Error('GOLD_RATES_DATABASE_URL is not configured')
   }
