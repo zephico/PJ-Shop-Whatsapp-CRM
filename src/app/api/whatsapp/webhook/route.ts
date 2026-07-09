@@ -22,6 +22,16 @@ interface WhatsAppMessage {
   timestamp: string
   type: string
   text?: { body: string }
+  order?: {
+    catalog_id?: string
+    text?: string
+    product_items?: Array<{
+      product_retailer_id?: string
+      quantity?: string
+      item_price?: string
+      currency?: string
+    }>
+  }
   image?: { id: string; mime_type: string; caption?: string }
   video?: { id: string; mime_type: string; caption?: string }
   document?: { id: string; mime_type: string; filename?: string; caption?: string }
@@ -781,9 +791,52 @@ async function parseMessageContent(
     interactiveReplyId: null,
   }
 
+  const summarizeOrderMessage = () => {
+    const order = message.order
+    if (!order) return '[Order message]'
+
+    const items = order.product_items ?? []
+    const totalItems = items.reduce((sum, item) => {
+      const quantity = Number.parseInt(item.quantity ?? '1', 10)
+      return sum + (Number.isFinite(quantity) ? quantity : 1)
+    }, 0)
+
+    const firstPricedItem = items.find(
+      (item) => item.item_price && item.currency
+    )
+    const uniqueProducts = items.length
+
+    const headline =
+      order.text?.trim() ||
+      (totalItems > 0
+        ? `Cart order: ${totalItems} item${totalItems === 1 ? '' : 's'}`
+        : uniqueProducts > 0
+          ? `Cart order: ${uniqueProducts} product${uniqueProducts === 1 ? '' : 's'}`
+          : 'Cart order')
+
+    const details: string[] = []
+    if (uniqueProducts > 0) {
+      details.push(
+        `${uniqueProducts} product${uniqueProducts === 1 ? '' : 's'} selected`
+      )
+    }
+    if (firstPricedItem?.item_price && firstPricedItem.currency) {
+      details.push(
+        `${firstPricedItem.currency} ${firstPricedItem.item_price} (first item price)`
+      )
+    }
+
+    return details.length > 0
+      ? `${headline}\n${details.join(' • ')}`
+      : headline
+  }
+
   switch (message.type) {
     case 'text':
       return { ...empty, contentText: message.text?.body || null }
+
+    case 'order':
+      return { ...empty, contentText: summarizeOrderMessage() }
 
     case 'image':
       if (message.image?.id) {
