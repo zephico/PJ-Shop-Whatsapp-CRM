@@ -12,6 +12,7 @@ import { verifyMetaWebhookSignature } from '@/lib/whatsapp/webhook-signature'
 import { runAutomationsForTrigger } from '@/lib/automations/engine'
 import { dispatchInboundToFlows } from '@/lib/flows/engine'
 import { notifyTelegramIncomingMessage } from '@/lib/telegram/notifier'
+import { handlePhase1AutoReply } from '@/lib/whatsapp/phase1-auto-reply'
 import {
   handleTemplateWebhookChange,
   isTemplateWebhookField,
@@ -693,26 +694,49 @@ async function processMessage(
   // no active flows take the runner's early-exit "no_match" path
   // basically for free (one indexed SELECT for the active run).
   // ============================================================
-  const flowResult = await dispatchInboundToFlows({
-    accountId,
-    userId: configOwnerUserId,
-    contactId: contactRecord.id,
-    conversationId: conversation.id,
-    message:
-      interactiveReplyId
-        ? {
-            kind: 'interactive_reply',
-            reply_id: interactiveReplyId,
-            reply_title: contentText ?? '',
-            meta_message_id: message.id,
-          }
-        : {
-            kind: 'text',
-            text: contentText ?? message.text?.body ?? '',
-            meta_message_id: message.id,
-          },
-    isFirstInboundMessage,
-  })
+  let phase1Handled = false
+  try {
+    phase1Handled = await handlePhase1AutoReply({
+      accountId,
+      userId: configOwnerUserId,
+      conversationId: conversation.id,
+      contactId: contactRecord.id,
+      contactName: contactRecord.name ?? contactName,
+      inboundText: contentText ?? message.text?.body ?? null,
+      interactiveReplyId,
+    })
+  } catch (error) {
+    console.error('[phase1] auto-reply failed:', {
+      conversationId: conversation.id,
+      contactId: contactRecord.id,
+      messageType: message.type,
+      interactiveReplyId,
+      error: error instanceof Error ? error.message : error,
+    })
+  }
+
+  const flowResult = phase1Handled
+    ? { consumed: true }
+    : await dispatchInboundToFlows({
+        accountId,
+        userId: configOwnerUserId,
+        contactId: contactRecord.id,
+        conversationId: conversation.id,
+        message:
+          interactiveReplyId
+            ? {
+                kind: 'interactive_reply',
+                reply_id: interactiveReplyId,
+                reply_title: contentText ?? '',
+                meta_message_id: message.id,
+              }
+            : {
+                kind: 'text',
+                text: contentText ?? message.text?.body ?? '',
+                meta_message_id: message.id,
+              },
+        isFirstInboundMessage,
+      })
   const flowConsumed = flowResult.consumed
 
   // Fire any automations that react to this webhook event. All dispatches
