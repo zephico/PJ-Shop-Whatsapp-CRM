@@ -13,6 +13,9 @@ import {
   isTemplateWebhookField,
 } from '@/lib/whatsapp/template-webhook'
 
+export const runtime = 'nodejs'
+export const maxDuration = 60
+
 interface WhatsAppMessage {
   id: string
   from: string
@@ -170,12 +173,26 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
   }
 
-  // Process asynchronously so we can ack Meta within their timeout.
-  processWebhook(body).catch((error) => {
+  try {
+    // IMPORTANT: persist the inbound event before returning 200.
+    //
+    // In serverless environments, fire-and-forget work scheduled after
+    // the response is sent is not reliable — the runtime can freeze or
+    // tear down immediately. That manifested as inbound WhatsApp
+    // messages only landing when the app happened to be warm / active,
+    // plus sporadic long delays. The non-critical side-effects inside
+    // processMessage (Telegram notifications, automation dispatch) still
+    // stay best-effort async, but the message/contact/conversation DB
+    // writes must complete before we acknowledge Meta.
+    await processWebhook(body)
+    return NextResponse.json({ status: 'received' }, { status: 200 })
+  } catch (error) {
     console.error('Error processing webhook:', error)
-  })
-
-  return NextResponse.json({ status: 'received' }, { status: 200 })
+    return NextResponse.json(
+      { error: 'Failed to process webhook' },
+      { status: 500 }
+    )
+  }
 }
 
 async function processWebhook(body: { entry?: WhatsAppWebhookEntry[] }) {
