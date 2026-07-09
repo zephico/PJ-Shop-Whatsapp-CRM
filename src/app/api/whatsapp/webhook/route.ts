@@ -849,14 +849,40 @@ async function parseMessageContent(
       .filter(Boolean)
 
     if (!order.catalog_id || retailerIds.length === 0) {
+      console.info('[webhook] order payload missing enrichment keys:', {
+        messageId: message.id,
+        catalogId: order.catalog_id ?? null,
+        retailerIds,
+        productItems: order.product_items ?? [],
+      })
       return { ...empty, contentText: summarizeOrderMessage() }
     }
 
     try {
+      console.info('[webhook] enriching order payload:', {
+        messageId: message.id,
+        catalogId: order.catalog_id,
+        retailerIds,
+        productItems: order.product_items ?? [],
+      })
+
       const products = await getCatalogProducts({
         catalogId: order.catalog_id,
         accessToken,
         retailerIds,
+      })
+
+      console.info('[webhook] order enrichment products result:', {
+        messageId: message.id,
+        catalogId: order.catalog_id,
+        requestedRetailerIds: retailerIds,
+        matchedProducts: products.map((product) => ({
+          retailer_id: product.retailer_id ?? null,
+          name: product.name ?? null,
+          image_url: product.image_url ?? null,
+          price: product.price ?? null,
+          currency: product.currency ?? null,
+        })),
       })
 
       const byRetailerId = new Map(
@@ -903,7 +929,12 @@ async function parseMessageContent(
     } catch (error) {
       console.warn(
         '[webhook] catalog product enrichment failed:',
-        error instanceof Error ? error.message : error
+        {
+          messageId: message.id,
+          catalogId: order.catalog_id,
+          retailerIds,
+          error: error instanceof Error ? error.message : error,
+        }
       )
       return { ...empty, contentText: summarizeOrderMessage() }
     }
