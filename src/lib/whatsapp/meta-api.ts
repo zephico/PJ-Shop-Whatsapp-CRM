@@ -18,6 +18,15 @@ export interface MetaSendResult {
   messageId: string
 }
 
+export interface CatalogProduct {
+  retailer_id?: string
+  name?: string
+  description?: string
+  image_url?: string
+  price?: string
+  currency?: string
+}
+
 export interface MetaPhoneInfo {
   id: string
   display_phone_number: string
@@ -197,6 +206,43 @@ export interface SubscribedApp {
     name?: string
     link?: string
   }
+}
+
+export interface GetCatalogProductsArgs {
+  catalogId: string
+  accessToken: string
+  retailerIds: string[]
+}
+
+/**
+ * Best-effort catalog lookup for inbound order messages. WhatsApp order
+ * webhooks include retailer IDs, quantities, and prices, but not the
+ * human-friendly product name/image we want to show in the inbox.
+ */
+export async function getCatalogProducts(
+  args: GetCatalogProductsArgs
+): Promise<CatalogProduct[]> {
+  const retailerIds = Array.from(
+    new Set(args.retailerIds.map((value) => value.trim()).filter(Boolean))
+  )
+  if (retailerIds.length === 0) return []
+
+  const params = new URLSearchParams({
+    fields: 'retailer_id,name,description,image_url,price,currency',
+    filter: JSON.stringify({
+      retailer_id: { is_any: retailerIds },
+    }),
+    access_token: args.accessToken,
+  })
+
+  const url = `${META_API_BASE}/${args.catalogId}/products?${params.toString()}`
+  const response = await fetch(url)
+  if (!response.ok) {
+    await throwMetaError(response, `Meta API error: ${response.status}`)
+  }
+
+  const data = (await response.json()) as { data?: CatalogProduct[] }
+  return data.data ?? []
 }
 
 /**
