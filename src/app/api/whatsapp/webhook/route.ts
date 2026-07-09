@@ -1,7 +1,11 @@
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { decrypt, encrypt, isLegacyFormat } from '@/lib/whatsapp/encryption'
-import { getMediaUrl, downloadMedia } from '@/lib/whatsapp/meta-api'
+import {
+  getCatalogProducts,
+  getMediaUrl,
+  downloadMedia,
+} from '@/lib/whatsapp/meta-api'
 import { normalizePhone } from '@/lib/whatsapp/phone-utils'
 import { findExistingContact, isUniqueViolation } from '@/lib/contacts/dedupe'
 import { verifyMetaWebhookSignature } from '@/lib/whatsapp/webhook-signature'
@@ -597,6 +601,8 @@ async function processMessage(
     ? message.type
     : message.type === 'sticker'
       ? 'image'   // stickers are images
+      : message.type === 'order' && mediaUrl
+        ? 'image' // catalogue/cart order enriched with first product image
       : 'text'    // reaction, unknown → text fallback
 
   // Determine whether this is the contact's very first inbound message
@@ -831,12 +837,84 @@ async function parseMessageContent(
       : headline
   }
 
+  const enrichOrderMessage = async () => {
+    const order = message.order
+    if (!order) {
+      return { ...empty, contentText: '[Order message]' }
+    }
+
+    const items = order.product_items ?? []
+    const retailerIds = items
+      .map((item) => item.product_retailer_id?.trim() ?? '')
+      .filter(Boolean)
+
+    if (!order.catalog_id || retailerIds.length === 0) {
+      return { ...empty, contentText: summarizeOrderMessage() }
+    }
+
+    try {
+      const products = await getCatalogProducts({
+        catalogId: order.catalog_id,
+        accessToken,
+        retailerIds,
+      })
+
+      const byRetailerId = new Map(
+        products
+          .filter((product) => product.retailer_id)
+          .map((product) => [product.retailer_id as string, product])
+      )
+
+      const lines: string[] = []
+      const imageUrl =
+        items
+          .map((item) =>
+            item.product_retailer_id
+              ? byRetailerId.get(item.product_retailer_id)?.image_url
+              : null
+          )
+          .find(Boolean) ?? null
+
+      for (const item of items) {
+        const retailerId = item.product_retailer_id ?? ''
+        const product = retailerId ? byRetailerId.get(retailerId) : undefined
+        const quantity = Number.parseInt(item.quantity ?? '1', 10)
+        const safeQuantity = Number.isFinite(quantity) ? quantity : 1
+        const name = product?.name?.trim() || retailerId || 'Product'
+        const price =
+          item.item_price && item.currency
+            ? ` - ${item.currency} ${item.item_price}`
+            : product?.price
+              ? ` - ${product.currency ?? ''} ${product.price}`.trim()
+              : ''
+
+        lines.push(`${safeQuantity} x ${name}${price}`)
+        if (product?.description?.trim()) {
+          lines.push(product.description.trim())
+        }
+      }
+
+      return {
+        ...empty,
+        contentText:
+          lines.length > 0 ? lines.join('\n') : summarizeOrderMessage(),
+        mediaUrl: imageUrl,
+      }
+    } catch (error) {
+      console.warn(
+        '[webhook] catalog product enrichment failed:',
+        error instanceof Error ? error.message : error
+      )
+      return { ...empty, contentText: summarizeOrderMessage() }
+    }
+  }
+
   switch (message.type) {
     case 'text':
       return { ...empty, contentText: message.text?.body || null }
 
     case 'order':
-      return { ...empty, contentText: summarizeOrderMessage() }
+      return enrichOrderMessage()
 
     case 'image':
       if (message.image?.id) {
