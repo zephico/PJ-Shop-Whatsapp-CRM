@@ -1,4 +1,4 @@
-import { Pool } from 'pg'
+import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 
 interface GoldRateRow {
   purity_label: string
@@ -12,63 +12,58 @@ export interface LatestGoldRates {
   rate24k: GoldRateRow | null
 }
 
-let pool: Pool | null = null
+let goldRatesClient: SupabaseClient | null = null
 
-function normalizeConnectionString(connectionString: string): string {
-  const url = new URL(connectionString)
-  const sslMode = url.searchParams.get('sslmode')
+function goldRatesSupabaseAdmin(): SupabaseClient {
+  const url = process.env.GOLD_RATES_SUPABASE_URL?.trim()
+  const key = process.env.GOLD_RATES_SUPABASE_SERVICE_ROLE_KEY?.trim()
 
-  // Supabase pooler connections on Amplify can surface a self-signed
-  // certificate chain during TLS verification. Force no-verify here so
-  // operators can keep the standard pooled connection URL in env config.
-  if (!sslMode || sslMode === 'require') {
-    url.searchParams.set('sslmode', 'no-verify')
+  if (!url) {
+    throw new Error(
+      'GOLD_RATES_SUPABASE_URL is not set on the server. ' +
+        'Add it in Amplify → Environment variables (exact name), then redeploy.',
+    )
   }
 
-  return url.toString()
-}
-
-function getPool(): Pool {
-  const rawConnectionString = process.env.GOLD_RATES_DATABASE_URL?.trim()
-  const connectionString = rawConnectionString
-    ? normalizeConnectionString(rawConnectionString)
-    : null
-  if (!connectionString) {
-    throw new Error('GOLD_RATES_DATABASE_URL is not configured')
+  if (!key) {
+    throw new Error(
+      'GOLD_RATES_SUPABASE_SERVICE_ROLE_KEY is not set on the server. ' +
+        'Add it in Amplify → Environment variables (exact name), then redeploy.',
+    )
   }
 
-  if (!pool) {
-    pool = new Pool({
-      connectionString,
-      ssl: { rejectUnauthorized: false },
-      max: 2,
+  if (!goldRatesClient) {
+    goldRatesClient = createClient(url, key, {
+      auth: { persistSession: false, autoRefreshToken: false },
     })
   }
 
-  return pool
+  return goldRatesClient
 }
 
 export async function getLatestGoldRates(): Promise<LatestGoldRates> {
-  const db = getPool()
-  const { rows } = await db.query<GoldRateRow>(
-    `
-      with latest_ts as (
-        select max(created_at) as created_at
-        from dev.store_metal_prices
-        where metal = 'gold'
-          and purity_label in ('22K', '24K')
-      )
-      select purity_label, price, unit, created_at
-      from dev.store_metal_prices
-      where metal = 'gold'
-        and purity_label in ('22K', '24K')
-        and created_at = (select created_at from latest_ts)
-      order by purity_label;
-    `
-  )
+  const client = goldRatesSupabaseAdmin()
+
+  const { data, error } = await client
+    .schema('prod')
+    .from('store_metal_prices')
+    .select('purity_label, price, unit, created_at')
+    .eq('metal', 'gold')
+    .in('purity_label', ['22K', '24K'])
+    .order('created_at', { ascending: false })
+    .limit(10)
+
+  if (error) {
+    throw new Error(`Failed to load external gold rates: ${error.message}`)
+  }
+
+  const latestTimestamp = data?.[0]?.created_at ?? null
+  const latestRows = latestTimestamp
+    ? data.filter((row) => row.created_at === latestTimestamp)
+    : []
 
   return {
-    rate22k: rows.find((row) => row.purity_label === '22K') ?? null,
-    rate24k: rows.find((row) => row.purity_label === '24K') ?? null,
+    rate22k: latestRows.find((row) => row.purity_label === '22K') ?? null,
+    rate24k: latestRows.find((row) => row.purity_label === '24K') ?? null,
   }
 }

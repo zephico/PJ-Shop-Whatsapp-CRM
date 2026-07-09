@@ -15,12 +15,14 @@ export async function GET(
     return NextResponse.json({ error: 'Not found' }, { status: 404 })
   }
 
-  const connectionString = process.env.GOLD_RATES_DATABASE_URL?.trim()
-  if (!connectionString) {
+  const supabaseUrl = process.env.GOLD_RATES_SUPABASE_URL?.trim()
+  const serviceRoleKey = process.env.GOLD_RATES_SUPABASE_SERVICE_ROLE_KEY?.trim()
+  if (!supabaseUrl || !serviceRoleKey) {
     return NextResponse.json(
       {
-        error: 'GOLD_RATES_DATABASE_URL is not configured',
-        hasGoldRatesDatabaseUrl: false,
+        error: 'Gold rates Supabase integration is not configured',
+        hasGoldRatesSupabaseUrl: Boolean(supabaseUrl),
+        hasGoldRatesSupabaseServiceRoleKey: Boolean(serviceRoleKey),
       },
       { status: 503 },
     )
@@ -30,7 +32,8 @@ export async function GET(
     const rates = await getLatestGoldRates()
     return NextResponse.json({
       ok: true,
-      hasGoldRatesDatabaseUrl: true,
+      hasGoldRatesSupabaseUrl: true,
+      hasGoldRatesSupabaseServiceRoleKey: true,
       rate22k: rates.rate22k,
       rate24k: rates.rate24k,
     })
@@ -38,10 +41,11 @@ export async function GET(
     return NextResponse.json(
       {
         error:
-          error instanceof Error
-            ? error.message
-            : 'Failed to load gold rates',
-        hasGoldRatesDatabaseUrl: true,
+        error instanceof Error
+          ? error.message
+          : 'Failed to load gold rates',
+        hasGoldRatesSupabaseUrl: true,
+        hasGoldRatesSupabaseServiceRoleKey: true,
       },
       { status: 502 },
     )
