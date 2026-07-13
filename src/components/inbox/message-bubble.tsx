@@ -9,6 +9,8 @@ import {
   CheckCheck,
   XCircle,
   FileText,
+  Download,
+  ExternalLink,
   MapPin,
   LayoutTemplate,
   ImageOff,
@@ -116,6 +118,95 @@ function MediaImage({ url, alt }: { url: string; alt: string }) {
   );
 }
 
+function resolveDocumentFilename(label: string | undefined): string {
+  const trimmed = label?.trim();
+  if (!trimmed) return "document.pdf";
+  return trimmed;
+}
+
+function DocumentLink({
+  url,
+  label,
+}: {
+  url: string;
+  label: string;
+}) {
+  const [href, setHref] = useState<string>(url);
+  const [error, setError] = useState(false);
+  const [loading, setLoading] = useState(url.startsWith("/api/whatsapp/media/"));
+
+  useEffect(() => {
+    let active = true;
+    let objectUrl: string | null = null;
+
+    async function loadDocument() {
+      if (!url.startsWith("/api/whatsapp/media/")) {
+        setHref(url);
+        setLoading(false);
+        return;
+      }
+
+      try {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error("Failed to load document");
+        const blob = await res.blob();
+        objectUrl = URL.createObjectURL(blob);
+        if (!active) {
+          URL.revokeObjectURL(objectUrl);
+          return;
+        }
+        setHref(objectUrl);
+      } catch {
+        if (active) setError(true);
+      } finally {
+        if (active) setLoading(false);
+      }
+    }
+
+    void loadDocument();
+
+    return () => {
+      active = false;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [url]);
+
+  if (error) {
+    return <MediaUnavailable label={label || "Document"} />;
+  }
+
+  const filename = resolveDocumentFilename(label);
+
+  return (
+    <div className="flex items-center gap-2 rounded-lg bg-muted/50 px-3 py-2 text-sm">
+      <FileText className="h-5 w-5 shrink-0 text-muted-foreground" />
+      <div className="min-w-0 flex-1">
+        <div className="truncate">{label || "Document"}</div>
+      </div>
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        download={filename}
+        className="flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground"
+        aria-label="Open document"
+        title={loading ? "Loading document..." : "Open document"}
+      >
+        <ExternalLink className="h-4 w-4" />
+      </a>
+      <a
+        href={href}
+        download={filename}
+        className="flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground"
+        aria-label="Download document"
+        title={loading ? "Loading document..." : "Download document"}
+      >
+        <Download className="h-4 w-4" />
+      </a>
+    </div>
+  );
+}
+
 function MessageContent({ message }: { message: Message }) {
   switch (message.content_type) {
     case "text":
@@ -177,17 +268,10 @@ function MessageContent({ message }: { message: Message }) {
         return <MediaUnavailable label={message.content_text || "Document"} />;
       }
       return (
-        <a
-          href={message.media_url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex items-center gap-2 rounded-lg bg-muted/50 px-3 py-2 text-sm hover:bg-muted"
-        >
-          <FileText className="h-5 w-5 shrink-0 text-muted-foreground" />
-          <span className="truncate">
-            {message.content_text || "Document"}
-          </span>
-        </a>
+        <DocumentLink
+          url={message.media_url}
+          label={message.content_text || "Document"}
+        />
       );
 
     case "template":
