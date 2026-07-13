@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import { CornerUpLeft, Copy, SmilePlus } from "lucide-react";
+import { CornerUpLeft, Copy, Share2, SmilePlus } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import {
@@ -73,6 +73,68 @@ export function MessageActions({
     setTouchOpen(false);
   };
 
+  const handleForward = async () => {
+    const label = message.content_text?.trim() || "Document";
+    const hasMedia = Boolean(message.media_url);
+    const shareApi = navigator.share?.bind(navigator);
+
+    if (!shareApi) {
+      if (hasMedia) {
+        try {
+          await navigator.clipboard.writeText(message.media_url!);
+          toast.success("Media link copied");
+        } catch {
+          toast.error("Forward not supported here");
+        }
+      } else {
+        toast.error("Forward not supported here");
+      }
+      setTouchOpen(false);
+      return;
+    }
+
+    try {
+      if (hasMedia && message.content_type === "document") {
+        const response = await fetch(message.media_url!);
+        if (!response.ok) throw new Error("Failed to load document");
+        const blob = await response.blob();
+        const file = new File([blob], label, {
+          type: blob.type || "application/octet-stream",
+        });
+
+        if (navigator.canShare?.({ files: [file] })) {
+          await shareApi({ files: [file], title: label, text: label });
+        } else {
+          await shareApi({
+            title: label,
+            text: label,
+            url: message.media_url!,
+          });
+        }
+      } else if (hasMedia) {
+        await shareApi({
+          title: label,
+          text: label,
+          url: message.media_url!,
+        });
+      } else if (message.content_text) {
+        await shareApi({
+          text: message.content_text,
+        });
+      } else {
+        toast.error("Nothing to forward");
+      }
+    } catch (error) {
+      // Browsers throw AbortError when the user dismisses the share sheet.
+      if (error instanceof Error && error.name === "AbortError") {
+        return;
+      }
+      toast.error("Forward failed");
+    } finally {
+      setTouchOpen(false);
+    }
+  };
+
   // Row alignment lives here (not in MessageBubble) so the `group/actions`
   // hover region matches the bubble's content width — hovering empty space
   // in the row no longer reveals the toolbar.
@@ -133,6 +195,17 @@ export function MessageActions({
         >
           <CornerUpLeft className="h-3.5 w-3.5" />
         </button>
+        {(message.media_url || message.content_text) && (
+          <button
+            type="button"
+            onClick={() => void handleForward()}
+            className="flex h-5 w-5 items-center justify-center rounded-full text-popover-foreground hover:bg-muted hover:text-foreground"
+            aria-label="Forward"
+            title="Forward"
+          >
+            <Share2 className="h-3.5 w-3.5" />
+          </button>
+        )}
         <button
           type="button"
           onClick={handleCopy}
