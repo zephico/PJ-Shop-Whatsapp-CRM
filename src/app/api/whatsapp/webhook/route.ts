@@ -565,18 +565,30 @@ async function processMessage(
   const { contentText, mediaUrl, mediaType, interactiveReplyId } =
     await parseMessageContent(message, accessToken)
   const persistedInboundMediaUrl =
-    message.type === 'image' && message.image?.id
+    ((message.type === 'image' && message.image?.id) ||
+      (message.type === 'document' &&
+        message.document?.id &&
+        (message.document.mime_type?.toLowerCase().startsWith('image/') ?? false)))
       ? await persistInboundWhatsAppMedia({
           accountId,
-          mediaId: message.image.id,
+          mediaId:
+            message.type === 'image'
+              ? message.image!.id
+              : message.document!.id,
           accessToken,
-          mimeType: message.image.mime_type ?? mediaType ?? 'image/jpeg',
+          mimeType:
+            message.type === 'image'
+              ? message.image?.mime_type ?? mediaType ?? 'image/jpeg'
+              : message.document?.mime_type ?? mediaType ?? 'image/jpeg',
           conversationId: conversation.id,
         }).catch((error) => {
           console.error('[webhook] failed to persist inbound image:', {
             conversationId: conversation.id,
             contactId: contactRecord.id,
-            mediaId: message.image?.id,
+            mediaId:
+              message.type === 'image'
+                ? message.image?.id
+                : message.document?.id,
             error: error instanceof Error ? error.message : error,
           })
           return null
@@ -726,6 +738,7 @@ async function processMessage(
       inboundContentType: contentType as 'text' | 'image' | 'document' | 'audio' | 'video' | 'location' | 'template' | 'interactive',
       inboundMediaUrl: mediaUrl,
       inboundStoredMediaUrl: persistedInboundMediaUrl,
+      inboundMediaMimeType: mediaType,
     })
   } catch (error) {
     console.error('[phase1] auto-reply failed:', {
