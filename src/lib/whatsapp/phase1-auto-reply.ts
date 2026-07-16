@@ -51,6 +51,7 @@ interface HandlePhase1AutoReplyArgs {
   inboundContentType: 'text' | 'image' | 'document' | 'audio' | 'video' | 'location' | 'template' | 'interactive'
   inboundMediaUrl: string | null
   inboundStoredMediaUrl: string | null
+  inboundMediaMimeType: string | null
 }
 
 const isDev = process.env.NODE_ENV !== 'production'
@@ -458,6 +459,7 @@ async function handleOpenCustomRequest(args: {
   inboundContentType: HandlePhase1AutoReplyArgs['inboundContentType']
   inboundMediaUrl: string | null
   inboundStoredMediaUrl: string | null
+  inboundMediaMimeType: string | null
 }): Promise<boolean> {
   const request = await getOpenCustomRequest(args.contactId, args.conversationId)
   if (!request) return false
@@ -490,7 +492,12 @@ async function handleOpenCustomRequest(args: {
   }
 
   if (request.status === 'awaiting_image') {
-    if (args.inboundContentType !== 'image' || !args.inboundMediaUrl) {
+    const isImageMessage = args.inboundContentType === 'image'
+    const isImageDocument =
+      args.inboundContentType === 'document' &&
+      (args.inboundMediaMimeType?.toLowerCase().startsWith('image/') ?? false)
+
+    if ((!isImageMessage && !isImageDocument) || !args.inboundMediaUrl) {
       await engineSendText({
         accountId: args.accountId,
         userId: args.userId,
@@ -595,6 +602,7 @@ export async function handlePhase1AutoReply(
     inboundContentType: args.inboundContentType,
     inboundMediaUrl: args.inboundMediaUrl,
     inboundStoredMediaUrl: args.inboundStoredMediaUrl,
+    inboundMediaMimeType: args.inboundMediaMimeType,
   })
   if (openCustomRequestHandled) return true
 
