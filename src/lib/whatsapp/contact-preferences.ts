@@ -27,6 +27,12 @@ interface ExtractedPreferences {
   preferred_occasion?: string
 }
 
+interface ExtractedPersonalFact {
+  factType: string
+  factValue: string
+  relatedPerson: string | null
+}
+
 interface ExtractedSpecialDate {
   occasionType: OccasionType
   occasionName: string | null
@@ -38,6 +44,8 @@ interface ExtractedSignals {
   preferences: ExtractedPreferences
   promptKeys: Set<PromptKey>
   specialDates: ExtractedSpecialDate[]
+  personalFacts: ExtractedPersonalFact[]
+  occasionPerson: string | null
 }
 
 const CATEGORY_RULES: Array<{ value: string; terms: string[] }> = [
@@ -85,6 +93,18 @@ const OCCASION_RULES: Array<{ value: string; terms: string[] }> = [
   { value: 'engagement', terms: ['engagement'] },
   { value: 'gift', terms: ['gift'] },
   { value: 'festival', terms: ['diwali', 'akshaya tritiya', 'karva chauth'] },
+]
+
+const PERSON_RULES: Array<{ value: string; terms: string[] }> = [
+  { value: 'wife', terms: ['wife', 'spouse'] },
+  { value: 'husband', terms: ['husband'] },
+  { value: 'mother', terms: ['mother', 'mom', 'mum'] },
+  { value: 'father', terms: ['father', 'dad'] },
+  { value: 'daughter', terms: ['daughter'] },
+  { value: 'son', terms: ['son'] },
+  { value: 'sister', terms: ['sister'] },
+  { value: 'brother', terms: ['brother'] },
+  { value: 'self', terms: ['myself', 'for myself', 'me'] },
 ]
 
 function includesAny(text: string, terms: string[]): boolean {
@@ -232,10 +252,65 @@ function extractSpecialDates(normalizedText: string): ExtractedSpecialDate[] {
   return results
 }
 
+function extractPersonalFacts(normalizedText: string): ExtractedPersonalFact[] {
+  const facts: ExtractedPersonalFact[] = []
+  const seen = new Set<string>()
+  const person = detectValue(normalizedText, PERSON_RULES) ?? null
+
+  if (person && person !== 'self') {
+    const key = `relationship:${person}`
+    if (!seen.has(key)) {
+      seen.add(key)
+      facts.push({
+        factType: 'relationship',
+        factValue: person,
+        relatedPerson: person,
+      })
+    }
+  }
+
+  const birthdayForMatch = normalizedText.match(
+    /for my (wife|husband|mother|mom|mum|father|dad|daughter|son|sister|brother)'?s birthday/i,
+  )
+  if (birthdayForMatch?.[1]) {
+    const relatedPerson = birthdayForMatch[1].toLowerCase()
+    const key = `birthday_of:${relatedPerson}`
+    if (!seen.has(key)) {
+      seen.add(key)
+      facts.push({
+        factType: 'birthday_of',
+        factValue: relatedPerson,
+        relatedPerson,
+      })
+    }
+  }
+
+  const anniversaryForMatch = normalizedText.match(
+    /for my (wife|husband)'?s anniversary|our anniversary/i,
+  )
+  if (anniversaryForMatch) {
+    const relatedPerson = normalizedText.includes('our anniversary')
+      ? 'self'
+      : anniversaryForMatch[1]?.toLowerCase() ?? 'spouse'
+    const key = `anniversary_of:${relatedPerson}`
+    if (!seen.has(key)) {
+      seen.add(key)
+      facts.push({
+        factType: 'anniversary_of',
+        factValue: relatedPerson,
+        relatedPerson,
+      })
+    }
+  }
+
+  return facts
+}
+
 function extractSignals(text: string): ExtractedSignals {
   const normalizedText = text.trim().toLowerCase()
   const preferences: ExtractedPreferences = {}
   const promptKeys = new Set<PromptKey>()
+  const occasionPerson = detectValue(normalizedText, PERSON_RULES) ?? null
 
   const favoriteCategory = detectValue(normalizedText, CATEGORY_RULES)
   if (favoriteCategory) {
@@ -258,6 +333,13 @@ function extractSignals(text: string): ExtractedSignals {
   const purchaseIntent = detectValue(normalizedText, INTENT_RULES)
   if (purchaseIntent) {
     preferences.purchase_intent = purchaseIntent
+    promptKeys.add('purchase_intent')
+  } else if (
+    includesAny(normalizedText, ['purchase', 'purchasing', 'buy', 'buying'])
+  ) {
+    preferences.purchase_intent = occasionPerson && occasionPerson !== 'self'
+      ? 'gift'
+      : 'self purchase'
     promptKeys.add('purchase_intent')
   }
 
@@ -294,7 +376,13 @@ function extractSignals(text: string): ExtractedSignals {
     promptKeys.add(specialDate.promptKey)
   }
 
-  return { preferences, promptKeys, specialDates }
+  return {
+    preferences,
+    promptKeys,
+    specialDates,
+    personalFacts: extractPersonalFacts(normalizedText),
+    occasionPerson,
+  }
 }
 
 async function upsertPreferences(
@@ -378,6 +466,181 @@ async function markPromptAnswered(
   if (error) throw error
 }
 
+async function insertPreferenceEvents(
+  supabase: SupabaseClient,
+  args: {
+    contactId: string
+    sourceMessageId: string
+    rawText: string
+    preferences: ExtractedPreferences
+    specialDates: ExtractedSpecialDate[]
+    personalFacts: ExtractedPersonalFact[]
+  },
+) {
+  const rows: Array<{
+    contact_id: string
+    source_message_id: string
+    event_type: string
+    event_key: string
+    event_value: string | null
+    raw_text: string
+  }> = []
+
+  for (const [key, value] of Object.entries(args.preferences)) {
+    if (value === undefined || value === null || value === '') continue
+    rows.push({
+      contact_id: args.contactId,
+      source_message_id: args.sourceMessageId,
+      event_type: 'preference',
+      event_key: key,
+      event_value: String(value),
+      raw_text: args.rawText,
+    })
+  }
+
+  for (const specialDate of args.specialDates) {
+    rows.push({
+      contact_id: args.contactId,
+      source_message_id: args.sourceMessageId,
+      event_type: 'special_date',
+      event_key: specialDate.occasionType,
+      event_value: specialDate.occasionDate,
+      raw_text: args.rawText,
+    })
+  }
+
+  for (const fact of args.personalFacts) {
+    rows.push({
+      contact_id: args.contactId,
+      source_message_id: args.sourceMessageId,
+      event_type: 'personal_fact',
+      event_key: fact.factType,
+      event_value: fact.factValue,
+      raw_text: args.rawText,
+    })
+  }
+
+  if (rows.length === 0) return
+
+  const { error } = await supabase.from('contact_preference_events').insert(rows)
+  if (error) throw error
+}
+
+async function insertJewelleryPreferenceMemory(
+  supabase: SupabaseClient,
+  args: {
+    contactId: string
+    sourceMessageId: string
+    rawText: string
+    preferences: ExtractedPreferences
+    occasionPerson: string | null
+  },
+) {
+  const hasJewellerySignal =
+    args.preferences.favorite_category ||
+    args.preferences.preferred_style ||
+    args.preferences.preferred_metal ||
+    args.preferences.preferred_purity ||
+    args.preferences.favorite_stone ||
+    args.preferences.purchase_intent ||
+    args.preferences.preferred_budget_min !== undefined ||
+    args.preferences.preferred_budget_max !== undefined ||
+    args.preferences.preferred_occasion
+
+  if (!hasJewellerySignal) return
+
+  const { error } = await supabase.from('contact_jewellery_preferences').insert({
+    contact_id: args.contactId,
+    source_message_id: args.sourceMessageId,
+    category: args.preferences.favorite_category ?? null,
+    style: args.preferences.preferred_style ?? null,
+    metal: args.preferences.preferred_metal ?? null,
+    purity: args.preferences.preferred_purity ?? null,
+    stone: args.preferences.favorite_stone ?? null,
+    budget_min: args.preferences.preferred_budget_min ?? null,
+    budget_max: args.preferences.preferred_budget_max ?? null,
+    purchase_intent: args.preferences.purchase_intent ?? null,
+    occasion_type: args.preferences.preferred_occasion ?? null,
+    occasion_person: args.occasionPerson,
+    raw_text: args.rawText,
+  })
+
+  if (error) throw error
+}
+
+async function insertOccasionMentions(
+  supabase: SupabaseClient,
+  args: {
+    contactId: string
+    sourceMessageId: string
+    rawText: string
+    preferences: ExtractedPreferences
+    specialDates: ExtractedSpecialDate[]
+    occasionPerson: string | null
+  },
+) {
+  const rows: Array<{
+    contact_id: string
+    source_message_id: string
+    occasion_type: string
+    person_label: string | null
+    occasion_date: string | null
+    raw_text: string
+  }> = []
+
+  if (args.preferences.preferred_occasion) {
+    rows.push({
+      contact_id: args.contactId,
+      source_message_id: args.sourceMessageId,
+      occasion_type: args.preferences.preferred_occasion,
+      person_label: args.occasionPerson,
+      occasion_date: null,
+      raw_text: args.rawText,
+    })
+  }
+
+  for (const specialDate of args.specialDates) {
+    rows.push({
+      contact_id: args.contactId,
+      source_message_id: args.sourceMessageId,
+      occasion_type: specialDate.occasionType,
+      person_label: args.occasionPerson,
+      occasion_date: specialDate.occasionDate,
+      raw_text: args.rawText,
+    })
+  }
+
+  if (rows.length === 0) return
+
+  const { error } = await supabase.from('contact_occasion_mentions').insert(rows)
+  if (error) throw error
+}
+
+async function insertPersonalFacts(
+  supabase: SupabaseClient,
+  args: {
+    contactId: string
+    sourceMessageId: string
+    rawText: string
+    personalFacts: ExtractedPersonalFact[]
+  },
+) {
+  if (args.personalFacts.length === 0) return
+
+  const { error } = await supabase.from('contact_personal_facts').insert(
+    args.personalFacts.map((fact) => ({
+      contact_id: args.contactId,
+      source_message_id: args.sourceMessageId,
+      fact_type: fact.factType,
+      fact_value: fact.factValue,
+      related_person: fact.relatedPerson,
+      raw_text: args.rawText,
+    })),
+  )
+
+  if (error) throw error
+}
+
 export async function captureContactPreferencesFromInbound(args: {
   supabase: SupabaseClient
   contactId: string
@@ -391,14 +654,47 @@ export async function captureContactPreferencesFromInbound(args: {
   const hasPreferences = Object.keys(extracted.preferences).length > 0
   const hasSpecialDates = extracted.specialDates.length > 0
   const hasPromptKeys = extracted.promptKeys.size > 0
+  const hasPersonalFacts = extracted.personalFacts.length > 0
 
-  if (!hasPreferences && !hasSpecialDates && !hasPromptKeys) return
+  if (!hasPreferences && !hasSpecialDates && !hasPromptKeys && !hasPersonalFacts) return
 
   await upsertPreferences(args.supabase, args.contactId, extracted.preferences)
+  await insertJewelleryPreferenceMemory(args.supabase, {
+    contactId: args.contactId,
+    sourceMessageId: args.sourceMessageId,
+    rawText: inboundText,
+    preferences: extracted.preferences,
+    occasionPerson: extracted.occasionPerson,
+  })
 
   for (const specialDate of extracted.specialDates) {
     await upsertSpecialDate(args.supabase, args.contactId, specialDate)
   }
+
+  await insertOccasionMentions(args.supabase, {
+    contactId: args.contactId,
+    sourceMessageId: args.sourceMessageId,
+    rawText: inboundText,
+    preferences: extracted.preferences,
+    specialDates: extracted.specialDates,
+    occasionPerson: extracted.occasionPerson,
+  })
+
+  await insertPersonalFacts(args.supabase, {
+    contactId: args.contactId,
+    sourceMessageId: args.sourceMessageId,
+    rawText: inboundText,
+    personalFacts: extracted.personalFacts,
+  })
+
+  await insertPreferenceEvents(args.supabase, {
+    contactId: args.contactId,
+    sourceMessageId: args.sourceMessageId,
+    rawText: inboundText,
+    preferences: extracted.preferences,
+    specialDates: extracted.specialDates,
+    personalFacts: extracted.personalFacts,
+  })
 
   for (const promptKey of extracted.promptKeys) {
     await markPromptAnswered(
