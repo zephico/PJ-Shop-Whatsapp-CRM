@@ -147,11 +147,11 @@ function menuReplyCopy(language: PreferredLanguage, replyId: string): string {
   if (replyId === 'MENU_CUSTOM_JEWELLERY') {
     switch (language) {
       case 'hi':
-        return 'ज़रूर. पहले jewellery category बताइए: Ring, Earrings, Pendant, Necklace, Bracelet या Other.'
+        return '✨ ज़रूर। पहले jewellery category बताइए:\n💍 Ring\n👂 Earrings\n📿 Necklace\n🔹 Other'
       case 'gu':
-        return 'હા જરૂર. પહેલા jewellery category જણાવો: Ring, Earrings, Pendant, Necklace, Bracelet અથવા Other.'
+        return '✨ હા જરૂર. પહેલા jewellery category જણાવો:\n💍 Ring\n👂 Earrings\n📿 Necklace\n🔹 Other'
       default:
-        return 'Sure. First, please tell us the jewellery category: Ring, Earrings, Pendant, Necklace, Bracelet, or Other.'
+        return '✨ Sure. First, please tell us the jewellery category:\n💍 Ring\n👂 Earrings\n📿 Necklace\n🔹 Other'
     }
   }
 
@@ -173,11 +173,11 @@ function customRequestPrompt(
     case 'awaiting_category':
       switch (language) {
         case 'hi':
-          return 'कृपया jewellery category बताइए: Ring, Earrings, Pendant, Necklace, Bracelet या Other.'
+          return '✨ कृपया jewellery category बताइए:\n💍 Ring\n👂 Earrings\n📿 Necklace\n🔹 Other'
         case 'gu':
-          return 'કૃપા કરીને jewellery category જણાવો: Ring, Earrings, Pendant, Necklace, Bracelet અથવા Other.'
+          return '✨ કૃપા કરીને jewellery category જણાવો:\n💍 Ring\n👂 Earrings\n📿 Necklace\n🔹 Other'
         default:
-          return 'Please tell us the jewellery category: Ring, Earrings, Pendant, Necklace, Bracelet, or Other.'
+          return '✨ Please tell us the jewellery category:\n💍 Ring\n👂 Earrings\n📿 Necklace\n🔹 Other'
       }
     case 'awaiting_image':
       switch (language) {
@@ -200,11 +200,11 @@ function customRequestPrompt(
     default:
       switch (language) {
         case 'hi':
-          return 'धन्यवाद। हमें आपकी category, reference image और budget मिल गया है। हमारी team इसे review करके जल्द confirm करेगी।'
+          return '✨ धन्यवाद! हमें आपकी requirements मिल गई हैं.\n\n📌 हमारी team इन्हें review करके आपको जल्द reply करेगी.'
         case 'gu':
-          return 'આભાર. અમને તમારી category, reference image અને budget મળી ગયા છે. અમારી team review કરીને જલ્દી confirm કરશે.'
+          return '✨ આભાર! અમને તમારી requirements મળી ગઈ છે.\n\n📌 અમારી team review કરીને તમને જલ્દી reply કરશે.'
         default:
-          return 'Thank you. We have received your category, reference image, and budget. Our team will review it and confirm shortly.'
+          return '✨ Thank you for providing us the requirements.\n\n📌 Our team will review them and reply to you shortly.'
       }
   }
 }
