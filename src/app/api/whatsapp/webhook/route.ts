@@ -20,6 +20,7 @@ import {
 
 export const runtime = 'nodejs'
 export const maxDuration = 60
+const CHAT_MEDIA_BUCKET = 'chat-media'
 
 interface WhatsAppMessage {
   id: string
@@ -563,6 +564,24 @@ async function processMessage(
   // Parse message content based on type
   const { contentText, mediaUrl, mediaType, interactiveReplyId } =
     await parseMessageContent(message, accessToken)
+  const persistedInboundMediaUrl =
+    message.type === 'image' && message.image?.id
+      ? await persistInboundWhatsAppMedia({
+          accountId,
+          mediaId: message.image.id,
+          accessToken,
+          mimeType: message.image.mime_type ?? mediaType ?? 'image/jpeg',
+          conversationId: conversation.id,
+        }).catch((error) => {
+          console.error('[webhook] failed to persist inbound image:', {
+            conversationId: conversation.id,
+            contactId: contactRecord.id,
+            mediaId: message.image?.id,
+            error: error instanceof Error ? error.message : error,
+          })
+          return null
+        })
+      : null
 
   // Resolve swipe-reply context if present. A missing parent is fine —
   // we just store NULL and the UI renders the message without a quote.
@@ -704,6 +723,9 @@ async function processMessage(
       contactName: contactRecord.name ?? contactName,
       inboundText: contentText ?? message.text?.body ?? null,
       interactiveReplyId,
+      inboundContentType: contentType as 'text' | 'image' | 'document' | 'audio' | 'video' | 'location' | 'template' | 'interactive',
+      inboundMediaUrl: mediaUrl,
+      inboundStoredMediaUrl: persistedInboundMediaUrl,
     })
   } catch (error) {
     console.error('[phase1] auto-reply failed:', {
@@ -775,6 +797,61 @@ async function processMessage(
       },
     }).catch((err) => console.error('[automations] dispatch failed:', err))
   }
+}
+
+function fileExtensionFromMimeType(mimeType: string): string {
+  switch (mimeType.toLowerCase()) {
+    case 'image/png':
+      return 'png'
+    case 'image/webp':
+      return 'webp'
+    case 'image/gif':
+      return 'gif'
+    default:
+      return 'jpg'
+  }
+}
+
+async function persistInboundWhatsAppMedia(args: {
+  accountId: string
+  mediaId: string
+  accessToken: string
+  mimeType: string
+  conversationId: string
+}): Promise<string> {
+  const mediaInfo = await getMediaUrl({
+    mediaId: args.mediaId,
+    accessToken: args.accessToken,
+  })
+  const { buffer, contentType } = await downloadMedia({
+    downloadUrl: mediaInfo.url,
+    accessToken: args.accessToken,
+  })
+
+  const extension = fileExtensionFromMimeType(contentType || args.mimeType)
+  const objectPath =
+    `account-${args.accountId}/inbound-whatsapp/${args.conversationId}/` +
+    `${Date.now()}-${args.mediaId}.${extension}`
+
+  const storage = supabaseAdmin().storage.from(CHAT_MEDIA_BUCKET)
+  const { error: uploadError } = await storage.upload(
+    objectPath,
+    new Uint8Array(buffer),
+    {
+      cacheControl: '3600',
+      upsert: false,
+      contentType: contentType || args.mimeType,
+    },
+  )
+  if (uploadError) {
+    throw new Error(`Storage upload failed: ${uploadError.message}`)
+  }
+
+  const {
+    data: { publicUrl },
+  } = storage.getPublicUrl(objectPath)
+
+  return publicUrl
 }
 
 async function parseMessageContent(
