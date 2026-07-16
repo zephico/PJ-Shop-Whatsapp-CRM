@@ -13,6 +13,7 @@ import { runAutomationsForTrigger } from '@/lib/automations/engine'
 import { dispatchInboundToFlows } from '@/lib/flows/engine'
 import { notifyTelegramIncomingMessage } from '@/lib/telegram/notifier'
 import { handlePhase1AutoReply } from '@/lib/whatsapp/phase1-auto-reply'
+import { captureContactPreferencesFromInbound } from '@/lib/whatsapp/contact-preferences'
 import {
   handleTemplateWebhookChange,
   isTemplateWebhookField,
@@ -648,25 +649,45 @@ async function processMessage(
     .eq('sender_type', 'customer')
   const isFirstInboundMessage = (priorCustomerMsgCount ?? 0) === 0
 
-  const { error: msgError } = await supabaseAdmin().from('messages').insert({
-    conversation_id: conversation.id,
-    sender_type: 'customer',
-    content_type: contentType,
-    content_text: contentText,
-    media_url: mediaUrl,
-    message_id: message.id,
-    status: 'delivered',
-    created_at: new Date(parseInt(message.timestamp) * 1000).toISOString(),
-    reply_to_message_id: replyToInternalId,
-    // Only populated for content_type='interactive'. Migration 010 added
-    // the column; null for every other content_type so existing inserts
-    // behave identically.
-    interactive_reply_id: interactiveReplyId,
-  })
+  const { data: insertedMessage, error: msgError } = await supabaseAdmin()
+    .from('messages')
+    .insert({
+      conversation_id: conversation.id,
+      sender_type: 'customer',
+      content_type: contentType,
+      content_text: contentText,
+      media_url: mediaUrl,
+      message_id: message.id,
+      status: 'delivered',
+      created_at: new Date(parseInt(message.timestamp) * 1000).toISOString(),
+      reply_to_message_id: replyToInternalId,
+      // Only populated for content_type='interactive'. Migration 010 added
+      // the column; null for every other content_type so existing inserts
+      // behave identically.
+      interactive_reply_id: interactiveReplyId,
+    })
+    .select('id')
+    .single()
 
-  if (msgError) {
+  if (msgError || !insertedMessage) {
     console.error('Error inserting message:', msgError)
     return
+  }
+
+  try {
+    await captureContactPreferencesFromInbound({
+      supabase: supabaseAdmin(),
+      contactId: contactRecord.id,
+      sourceMessageId: insertedMessage.id,
+      inboundText: contentText ?? message.text?.body ?? null,
+    })
+  } catch (error) {
+    console.error('[contact-preferences] failed to capture inbound preferences:', {
+      contactId: contactRecord.id,
+      conversationId: conversation.id,
+      messageId: message.id,
+      error: error instanceof Error ? error.message : error,
+    })
   }
 
   // Update conversation
