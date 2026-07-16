@@ -1,17 +1,36 @@
 import { supabaseAdmin } from '@/lib/supabase/admin'
-import { engineSendInteractiveButtons, engineSendText } from '@/lib/flows/meta-send'
+import { engineSendInteractiveButtons, engineSendInteractiveList, engineSendText } from '@/lib/flows/meta-send'
 import { getLatestGoldRates } from '@/lib/whatsapp/external-gold-rates'
 
 type PreferredLanguage = 'en' | 'hi' | 'gu'
 type ConversationState = 'AWAITING_LANGUAGE_SELECTION' | 'MAIN_MENU'
 const BROWSE_JEWELLERY_URL = 'https://pradeepjewellers.in/products'
+type CustomRequestStatus =
+  | 'awaiting_category'
+  | 'awaiting_image'
+  | 'awaiting_budget'
+  | 'pending_review'
+  | 'confirmed'
+  | 'closed'
 
 const LANGUAGE_BUTTON_IDS = ['LANG_EN', 'LANG_HI', 'LANG_GU'] as const
 const MAIN_MENU_BUTTON_IDS = [
   'MENU_BROWSE_JEWELLERY',
+  'MENU_CUSTOM_JEWELLERY',
   'MENU_GOLD_RATE',
   'MENU_TALK_TO_EXECUTIVE',
 ] as const
+
+interface CustomJewelleryRequestRow {
+  id: string
+  account_id: string
+  contact_id: string
+  conversation_id: string
+  status: CustomRequestStatus
+  category: string | null
+  reference_image_url: string | null
+  budget_text: string | null
+}
 
 interface Phase1ContactRow {
   id: string
@@ -29,6 +48,9 @@ interface HandlePhase1AutoReplyArgs {
   contactName: string | null
   inboundText: string | null
   interactiveReplyId: string | null
+  inboundContentType: 'text' | 'image' | 'document' | 'audio' | 'video' | 'location' | 'template' | 'interactive'
+  inboundMediaUrl: string | null
+  inboundStoredMediaUrl: string | null
 }
 
 const isDev = process.env.NODE_ENV !== 'production'
@@ -68,8 +90,9 @@ function mainMenuCopy(language: PreferredLanguage) {
     case 'hi':
       return {
         body: 'हम आपकी कैसे मदद कर सकते हैं?',
-        buttons: [
+        rows: [
           { id: 'MENU_BROWSE_JEWELLERY', title: 'Jewellery देखें' },
+          { id: 'MENU_CUSTOM_JEWELLERY', title: 'Custom बनवाना है' },
           { id: 'MENU_GOLD_RATE', title: 'Gold Rate' },
           { id: 'MENU_TALK_TO_EXECUTIVE', title: 'Executive से बात' },
         ],
@@ -77,8 +100,9 @@ function mainMenuCopy(language: PreferredLanguage) {
     case 'gu':
       return {
         body: 'અમે તમારી કેવી રીતે મદદ કરી શકીએ?',
-        buttons: [
+        rows: [
           { id: 'MENU_BROWSE_JEWELLERY', title: 'Jewellery જુઓ' },
+          { id: 'MENU_CUSTOM_JEWELLERY', title: 'Custom બનાવવું છે' },
           { id: 'MENU_GOLD_RATE', title: 'Gold Rate' },
           { id: 'MENU_TALK_TO_EXECUTIVE', title: 'Executive સાથે વાત' },
         ],
@@ -86,8 +110,9 @@ function mainMenuCopy(language: PreferredLanguage) {
     default:
       return {
         body: 'How can we help you today?',
-        buttons: [
+        rows: [
           { id: 'MENU_BROWSE_JEWELLERY', title: 'Browse Jewellery' },
+          { id: 'MENU_CUSTOM_JEWELLERY', title: 'Get Custom Made' },
           { id: 'MENU_GOLD_RATE', title: 'Gold Rate' },
           { id: 'MENU_TALK_TO_EXECUTIVE', title: 'Talk to Executive' },
         ],
@@ -118,6 +143,17 @@ function menuReplyCopy(language: PreferredLanguage, replyId: string): string {
     }
   }
 
+  if (replyId === 'MENU_CUSTOM_JEWELLERY') {
+    switch (language) {
+      case 'hi':
+        return 'ज़रूर. पहले jewellery category बताइए: Ring, Earrings, Pendant, Necklace, Bracelet या Other.'
+      case 'gu':
+        return 'હા જરૂર. પહેલા jewellery category જણાવો: Ring, Earrings, Pendant, Necklace, Bracelet અથવા Other.'
+      default:
+        return 'Sure. First, please tell us the jewellery category: Ring, Earrings, Pendant, Necklace, Bracelet, or Other.'
+    }
+  }
+
   switch (language) {
     case 'hi':
       return 'ज़रूर. हमारे executive आपसे जल्द connect करेंगे.'
@@ -125,6 +161,50 @@ function menuReplyCopy(language: PreferredLanguage, replyId: string): string {
       return 'હા જરૂર. અમારા executive તમારી સાથે જલ્દી connect કરશે.'
     default:
       return 'Sure. Our executive will connect with you shortly.'
+  }
+}
+
+function customRequestPrompt(
+  language: PreferredLanguage,
+  status: CustomRequestStatus,
+): string {
+  switch (status) {
+    case 'awaiting_category':
+      switch (language) {
+        case 'hi':
+          return 'कृपया jewellery category बताइए: Ring, Earrings, Pendant, Necklace, Bracelet या Other.'
+        case 'gu':
+          return 'કૃપા કરીને jewellery category જણાવો: Ring, Earrings, Pendant, Necklace, Bracelet અથવા Other.'
+        default:
+          return 'Please tell us the jewellery category: Ring, Earrings, Pendant, Necklace, Bracelet, or Other.'
+      }
+    case 'awaiting_image':
+      switch (language) {
+        case 'hi':
+          return 'कृपया jewellery की reference image भेजिए जिसे आप बनवाना चाहते हैं.'
+        case 'gu':
+          return 'કૃપા કરીને jewellery ની reference image મોકલો જે તમે બનાવડાવા માંગો છો.'
+        default:
+          return 'Please send the reference image of the jewellery you want us to make.'
+      }
+    case 'awaiting_budget':
+      switch (language) {
+        case 'hi':
+          return 'कृपया अपना approximate budget बताइए.'
+        case 'gu':
+          return 'કૃપા કરીને તમારું approximate budget જણાવો.'
+        default:
+          return 'Please share your approximate budget.'
+      }
+    default:
+      switch (language) {
+        case 'hi':
+          return 'धन्यवाद। हमें आपकी category, reference image और budget मिल गया है। हमारी team इसे review करके जल्द confirm करेगी।'
+        case 'gu':
+          return 'આભાર. અમને તમારી category, reference image અને budget મળી ગયા છે. અમારી team review કરીને જલ્દી confirm કરશે.'
+        default:
+          return 'Thank you. We have received your category, reference image, and budget. Our team will review it and confirm shortly.'
+      }
   }
 }
 
@@ -216,15 +296,23 @@ async function sendMainMenu(args: {
     contactId: args.contactId,
     language: args.language,
     bodyText: copy.body,
-    buttons: copy.buttons,
+    rows: copy.rows,
   })
-  await engineSendInteractiveButtons({
+  await engineSendInteractiveList({
     accountId: args.accountId,
     userId: args.userId,
     conversationId: args.conversationId,
     contactId: args.contactId,
     bodyText: copy.body,
-    buttons: copy.buttons,
+    buttonLabel: args.language === 'hi' ? 'Options' : args.language === 'gu' ? 'Options' : 'Options',
+    sections: [
+      {
+        rows: copy.rows.map((row) => ({
+          id: row.id,
+          title: row.title,
+        })),
+      },
+    ],
   })
 }
 
@@ -294,6 +382,170 @@ async function getContactRow(contactId: string, accountId: string): Promise<Phas
   return data as Phase1ContactRow | null
 }
 
+async function getOpenCustomRequest(
+  contactId: string,
+  conversationId: string,
+): Promise<CustomJewelleryRequestRow | null> {
+  const { data, error } = await supabaseAdmin()
+    .from('custom_jewellery_requests')
+    .select('id, account_id, contact_id, conversation_id, status, category, reference_image_url, budget_text')
+    .eq('contact_id', contactId)
+    .eq('conversation_id', conversationId)
+    .in('status', ['awaiting_category', 'awaiting_image', 'awaiting_budget', 'pending_review'])
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (error) {
+    throw new Error(`Failed to load custom jewellery request: ${error.message}`)
+  }
+
+  return data as CustomJewelleryRequestRow | null
+}
+
+async function createCustomRequest(args: {
+  accountId: string
+  contactId: string
+  conversationId: string
+}): Promise<CustomJewelleryRequestRow> {
+  const { data, error } = await supabaseAdmin()
+    .from('custom_jewellery_requests')
+    .insert({
+      account_id: args.accountId,
+      contact_id: args.contactId,
+      conversation_id: args.conversationId,
+      status: 'awaiting_category',
+    })
+    .select('id, account_id, contact_id, conversation_id, status, category, reference_image_url, budget_text')
+    .single()
+
+  if (error || !data) {
+    throw new Error(`Failed to create custom jewellery request: ${error?.message ?? 'unknown error'}`)
+  }
+
+  return data as CustomJewelleryRequestRow
+}
+
+async function updateCustomRequest(
+  requestId: string,
+  patch: Partial<Pick<CustomJewelleryRequestRow, 'status' | 'category' | 'reference_image_url' | 'budget_text'>>,
+) {
+  const updatePayload: Record<string, unknown> = {
+    ...patch,
+    updated_at: new Date().toISOString(),
+  }
+  if (patch.status === 'pending_review') {
+    updatePayload.completed_at = new Date().toISOString()
+  }
+
+  const { error } = await supabaseAdmin()
+    .from('custom_jewellery_requests')
+    .update(updatePayload)
+    .eq('id', requestId)
+
+  if (error) {
+    throw new Error(`Failed to update custom jewellery request: ${error.message}`)
+  }
+}
+
+async function handleOpenCustomRequest(args: {
+  accountId: string
+  userId: string
+  conversationId: string
+  contactId: string
+  language: PreferredLanguage
+  inboundText: string | null
+  inboundContentType: HandlePhase1AutoReplyArgs['inboundContentType']
+  inboundMediaUrl: string | null
+  inboundStoredMediaUrl: string | null
+}): Promise<boolean> {
+  const request = await getOpenCustomRequest(args.contactId, args.conversationId)
+  if (!request) return false
+
+  if (request.status === 'awaiting_category') {
+    const category = args.inboundText?.trim()
+    if (!category) {
+      await engineSendText({
+        accountId: args.accountId,
+        userId: args.userId,
+        conversationId: args.conversationId,
+        contactId: args.contactId,
+        text: customRequestPrompt(args.language, 'awaiting_category'),
+      })
+      return true
+    }
+
+    await updateCustomRequest(request.id, {
+      category,
+      status: 'awaiting_image',
+    })
+    await engineSendText({
+      accountId: args.accountId,
+      userId: args.userId,
+      conversationId: args.conversationId,
+      contactId: args.contactId,
+      text: customRequestPrompt(args.language, 'awaiting_image'),
+    })
+    return true
+  }
+
+  if (request.status === 'awaiting_image') {
+    if (args.inboundContentType !== 'image' || !args.inboundMediaUrl) {
+      await engineSendText({
+        accountId: args.accountId,
+        userId: args.userId,
+        conversationId: args.conversationId,
+        contactId: args.contactId,
+        text: customRequestPrompt(args.language, 'awaiting_image'),
+      })
+      return true
+    }
+
+    await updateCustomRequest(request.id, {
+      reference_image_url: args.inboundStoredMediaUrl ?? args.inboundMediaUrl,
+      status: 'awaiting_budget',
+    })
+    await engineSendText({
+      accountId: args.accountId,
+      userId: args.userId,
+      conversationId: args.conversationId,
+      contactId: args.contactId,
+      text: customRequestPrompt(args.language, 'awaiting_budget'),
+    })
+    return true
+  }
+
+  if (request.status === 'awaiting_budget') {
+    const budgetText = args.inboundText?.trim()
+    if (!budgetText) {
+      await engineSendText({
+        accountId: args.accountId,
+        userId: args.userId,
+        conversationId: args.conversationId,
+        contactId: args.contactId,
+        text: customRequestPrompt(args.language, 'awaiting_budget'),
+      })
+      return true
+    }
+
+    await updateCustomRequest(request.id, {
+      budget_text: budgetText,
+      status: 'pending_review',
+    })
+    await engineSendText({
+      accountId: args.accountId,
+      userId: args.userId,
+      conversationId: args.conversationId,
+      contactId: args.contactId,
+      text: customRequestPrompt(args.language, 'pending_review'),
+    })
+    await markNeedsHumanAttention(args.conversationId, args.accountId)
+    return true
+  }
+
+  return false
+}
+
 function isLanguageButtonReply(id: string | null): id is (typeof LANGUAGE_BUTTON_IDS)[number] {
   return Boolean(id && LANGUAGE_BUTTON_IDS.includes(id as (typeof LANGUAGE_BUTTON_IDS)[number]))
 }
@@ -332,6 +584,20 @@ export async function handlePhase1AutoReply(
     inboundText: args.inboundText,
   })
 
+  const language = preferredLanguage ?? 'en'
+  const openCustomRequestHandled = await handleOpenCustomRequest({
+    accountId: args.accountId,
+    userId: args.userId,
+    conversationId: args.conversationId,
+    contactId: args.contactId,
+    language,
+    inboundText: args.inboundText,
+    inboundContentType: args.inboundContentType,
+    inboundMediaUrl: args.inboundMediaUrl,
+    inboundStoredMediaUrl: args.inboundStoredMediaUrl,
+  })
+  if (openCustomRequestHandled) return true
+
   if (isLanguageButtonReply(args.interactiveReplyId)) {
     const selectedLanguage = languageFromButton(args.interactiveReplyId)
     await updateContactState(args.contactId, args.accountId, {
@@ -349,10 +615,16 @@ export async function handlePhase1AutoReply(
   }
 
   if (isMainMenuReply(args.interactiveReplyId)) {
-    const language = preferredLanguage ?? 'en'
     await updateContactState(args.contactId, args.accountId, {
       conversation_state: 'MAIN_MENU',
     })
+    if (args.interactiveReplyId === 'MENU_CUSTOM_JEWELLERY') {
+      await createCustomRequest({
+        accountId: args.accountId,
+        contactId: args.contactId,
+        conversationId: args.conversationId,
+      })
+    }
     await sendMenuReply({
       accountId: args.accountId,
       userId: args.userId,
