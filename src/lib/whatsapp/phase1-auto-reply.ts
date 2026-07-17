@@ -125,7 +125,7 @@ function mainMenuCopy(language: PreferredLanguage) {
         rows: [
           { id: 'MENU_BROWSE_JEWELLERY', title: 'Jewellery देखें' },
           { id: 'MENU_CUSTOM_JEWELLERY', title: 'Custom बनवाना है' },
-          { id: 'MENU_GOLD_RATE', title: 'Gold Rate' },
+          { id: 'MENU_GOLD_RATE', title: "Today's Rate" },
           { id: 'MENU_TALK_TO_EXECUTIVE', title: 'Executive से बात' },
         ],
       }
@@ -135,7 +135,7 @@ function mainMenuCopy(language: PreferredLanguage) {
         rows: [
           { id: 'MENU_BROWSE_JEWELLERY', title: 'Jewellery જુઓ' },
           { id: 'MENU_CUSTOM_JEWELLERY', title: 'Custom બનાવવું છે' },
-          { id: 'MENU_GOLD_RATE', title: 'Gold Rate' },
+          { id: 'MENU_GOLD_RATE', title: "Today's Rate" },
           { id: 'MENU_TALK_TO_EXECUTIVE', title: 'Executive સાથે વાત' },
         ],
       }
@@ -145,7 +145,7 @@ function mainMenuCopy(language: PreferredLanguage) {
         rows: [
           { id: 'MENU_BROWSE_JEWELLERY', title: 'Browse Jewellery' },
           { id: 'MENU_CUSTOM_JEWELLERY', title: 'Get Custom Made' },
-          { id: 'MENU_GOLD_RATE', title: 'Gold Rate' },
+          { id: 'MENU_GOLD_RATE', title: "Today's Rate" },
           { id: 'MENU_TALK_TO_EXECUTIVE', title: 'Talk to Executive' },
         ],
       }
