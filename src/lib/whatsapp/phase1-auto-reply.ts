@@ -1194,7 +1194,7 @@ export async function handlePhase1AutoReply(
   }
 
   if (conversationState === 'HUMAN_HANDOFF') {
-    if (isMainMenuText(args.inboundText ?? '')) {
+    if (isMainMenuText(args.inboundText ?? '') || isGreeting(args.inboundText ?? '')) {
       await updateContactState(args.contactId, args.accountId, {
         conversation_state: 'MAIN_MENU',
         last_menu_type: null,
