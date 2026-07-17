@@ -35,7 +35,7 @@ export async function GET(
       hasGoldRatesSupabaseUrl: true,
       hasGoldRatesSupabaseServiceRoleKey: true,
       rate22k: rates.rate22k,
-      rate24k: rates.rate24k,
+      rateSilver: rates.rateSilver,
     })
   } catch (error) {
     return NextResponse.json(

@@ -1,6 +1,6 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 
-interface GoldRateRow {
+interface RateRow {
   purity_label: string
   price: string | number
   unit: string
@@ -8,8 +8,8 @@ interface GoldRateRow {
 }
 
 export interface LatestGoldRates {
-  rate22k: GoldRateRow | null
-  rate24k: GoldRateRow | null
+  rate22k: RateRow | null
+  rateSilver: RateRow | null
 }
 
 let goldRatesClient: SupabaseClient | null = null
@@ -47,9 +47,9 @@ export async function getLatestGoldRates(): Promise<LatestGoldRates> {
   const { data, error } = await client
     .schema('prod')
     .from('store_metal_prices')
-    .select('purity_label, price, unit, created_at')
-    .eq('metal', 'gold')
-    .in('purity_label', ['22K', '24K'])
+    .select('purity_label, price, unit, created_at, metal')
+    .in('metal', ['gold', 'silver'])
+    .in('purity_label', ['22K', '999'])
     .order('created_at', { ascending: false })
     .limit(10)
 
@@ -64,6 +64,6 @@ export async function getLatestGoldRates(): Promise<LatestGoldRates> {
 
   return {
     rate22k: latestRows.find((row) => row.purity_label === '22K') ?? null,
-    rate24k: latestRows.find((row) => row.purity_label === '24K') ?? null,
+    rateSilver: latestRows.find((row) => row.purity_label === '999') ?? null,
   }
 }
