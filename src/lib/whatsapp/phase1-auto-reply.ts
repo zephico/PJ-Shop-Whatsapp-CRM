@@ -34,6 +34,7 @@ const POST_BROWSE_BUTTON_IDS = ['POST_BROWSE_EXPLORE_MORE', 'POST_BROWSE_TALK_TO
 const POST_CUSTOM_BUTTON_IDS = ['POST_CUSTOM_ADD_MORE_DETAILS', 'POST_CUSTOM_MAIN_MENU'] as const
 const POST_GOLD_RATE_BUTTON_IDS = ['POST_GOLD_BROWSE_JEWELLERY', 'POST_GOLD_TALK_TO_EXECUTIVE', 'POST_GOLD_MAIN_MENU'] as const
 const BIRTHDAY_CONSENT_BUTTON_IDS = ['BIRTHDAY_YES', 'BIRTHDAY_MAYBE_LATER', 'BIRTHDAY_NO_THANKS'] as const
+const EXECUTIVE_WAIT_BUTTON_IDS = ['EXECUTIVE_WAIT_VIEW_COLLECTION'] as const
 const MAIN_MENU_TEXT_TOKENS = ['main menu', 'menu', 'mainmenu'] as const
 type BirthdayPromptStatus = 'not_asked' | 'accepted' | 'maybe_later' | 'declined' | 'completed'
 
@@ -280,11 +281,31 @@ function welcomeBackCopy(language: PreferredLanguage): string {
 function executiveConfirmationCopy(language: PreferredLanguage): string {
   switch (language) {
     case 'hi':
-      return 'ज़रूर! हमारा executive आपसे जल्द connect करेगा. 😊'
+      return 'Pradeep Jewellers का executive आपसे जल्द connect करेगा. 😊 तब तक, क्या आप हमारा collection देखना चाहेंगे?'
     case 'gu':
-      return 'હા જરૂર! અમારો executive તમારી સાથે જલ્દી connect કરશે. 😊'
+      return 'Pradeep Jewellers નો executive તમારી સાથે જલ્દી connect કરશે. 😊 ત્યાં સુધી, શું તમે અમારું collection જોવા માંગશો?'
     default:
-      return 'Sure! Our executive will connect with you shortly. 😊'
+      return 'A Pradeep Jewellers executive will connect with you shortly. 😊 Till then, would you like to view our collection?'
+  }
+}
+
+function executiveWaitCopy(language: PreferredLanguage) {
+  switch (language) {
+    case 'hi':
+      return {
+        body: executiveConfirmationCopy(language),
+        buttons: [{ id: 'EXECUTIVE_WAIT_VIEW_COLLECTION', title: 'View Collection' }],
+      }
+    case 'gu':
+      return {
+        body: executiveConfirmationCopy(language),
+        buttons: [{ id: 'EXECUTIVE_WAIT_VIEW_COLLECTION', title: 'View Collection' }],
+      }
+    default:
+      return {
+        body: executiveConfirmationCopy(language),
+        buttons: [{ id: 'EXECUTIVE_WAIT_VIEW_COLLECTION', title: 'View Collection' }],
+      }
   }
 }
 
@@ -359,11 +380,11 @@ function birthdayTooManyAttemptsCopy(language: PreferredLanguage): string {
 function birthdaySavedCopy(language: PreferredLanguage, formattedBirthday: string): string {
   switch (language) {
     case 'hi':
-      return `धन्यवाद! 🎉\n\nआपका birthday ${formattedBirthday} के रूप में save हो गया है.\n\nआप कभी भी इसे update या remove करने के लिए कह सकते हैं.`
+      return `धन्यवाद! 🎉\n\nआपका birthday ${formattedBirthday} के रूप में save हो गया है.\n\nअब आपको अपने birthday पर special offers और discounts मिलते रहेंगे.`
     case 'gu':
-      return `આભાર! 🎉\n\nતમારો birthday ${formattedBirthday} તરીકે save થઈ ગયો છે.\n\nતમે ક્યારેય પણ તેને update અથવા remove કરવા કહી શકો છો.`
+      return `આભાર! 🎉\n\nતમારો birthday ${formattedBirthday} તરીકે save થઈ ગયો છે.\n\nહવે તમને તમારા birthday પર special offers અને discounts મળતા રહેશે.`
     default:
-      return `Thank you! 🎉\n\nYour birthday has been saved as ${formattedBirthday}.\n\nYou can ask us to update or remove it anytime.`
+      return `Thank you! 🎉\n\nYour birthday has been saved as ${formattedBirthday}.\n\nYou will now receive special offers and discounts on your birthday.`
   }
 }
 
@@ -572,13 +593,6 @@ async function sendExecutiveFollowup(args: {
   language: PreferredLanguage
 }) {
   await markNeedsHumanAttention(args.conversationId, args.accountId)
-  await engineSendText({
-    accountId: args.accountId,
-    userId: args.userId,
-    conversationId: args.conversationId,
-    contactId: args.contact.id,
-    text: executiveConfirmationCopy(args.language),
-  })
 
   const hasBirthday =
     Boolean(args.contact.birth_date) &&
@@ -592,6 +606,15 @@ async function sendExecutiveFollowup(args: {
     args.contact.birthday_prompt_conversation_id === args.conversationId
 
   if (hasBirthday || promptStatus === 'declined' || sameConversationMaybeLater) {
+    const waitCopy = executiveWaitCopy(args.language)
+    await sendActionButtons({
+      accountId: args.accountId,
+      userId: args.userId,
+      conversationId: args.conversationId,
+      contactId: args.contact.id,
+      bodyText: waitCopy.body,
+      buttons: waitCopy.buttons,
+    })
     await moveToHumanHandoff({
       accountId: args.accountId,
       contactId: args.contact.id,
@@ -601,6 +624,14 @@ async function sendExecutiveFollowup(args: {
     })
     return
   }
+
+  await engineSendText({
+    accountId: args.accountId,
+    userId: args.userId,
+    conversationId: args.conversationId,
+    contactId: args.contact.id,
+    text: 'Sure! Our executive will connect with you shortly. 😊',
+  })
 
   const consent = birthdayConsentCopy(args.language)
   await sendActionButtons({
@@ -993,6 +1024,10 @@ function isBirthdayConsentReply(id: string | null): id is (typeof BIRTHDAY_CONSE
   return Boolean(id && BIRTHDAY_CONSENT_BUTTON_IDS.includes(id as (typeof BIRTHDAY_CONSENT_BUTTON_IDS)[number]))
 }
 
+function isExecutiveWaitReply(id: string | null): id is (typeof EXECUTIVE_WAIT_BUTTON_IDS)[number] {
+  return Boolean(id && EXECUTIVE_WAIT_BUTTON_IDS.includes(id as (typeof EXECUTIVE_WAIT_BUTTON_IDS)[number]))
+}
+
 function languageFromButton(id: (typeof LANGUAGE_BUTTON_IDS)[number]): PreferredLanguage {
   switch (id) {
     case 'LANG_HI':
@@ -1101,6 +1136,15 @@ export async function handlePhase1AutoReply(
     }
 
     if (args.interactiveReplyId === 'BIRTHDAY_MAYBE_LATER') {
+      const waitCopy = executiveWaitCopy(language)
+      await sendActionButtons({
+        accountId: args.accountId,
+        userId: args.userId,
+        conversationId: args.conversationId,
+        contactId: args.contactId,
+        bodyText: waitCopy.body,
+        buttons: waitCopy.buttons,
+      })
       await moveToHumanHandoff({
         accountId: args.accountId,
         contactId: args.contactId,
@@ -1111,6 +1155,15 @@ export async function handlePhase1AutoReply(
       return true
     }
 
+    const waitCopy = executiveWaitCopy(language)
+    await sendActionButtons({
+      accountId: args.accountId,
+      userId: args.userId,
+      conversationId: args.conversationId,
+      contactId: args.contactId,
+      bodyText: waitCopy.body,
+      buttons: waitCopy.buttons,
+    })
     await moveToHumanHandoff({
       accountId: args.accountId,
       contactId: args.contactId,
@@ -1138,12 +1191,14 @@ export async function handlePhase1AutoReply(
     if (!parsedBirthday) {
       const attempts = (contact.birthday_invalid_attempts ?? 0) + 1
       if (attempts >= 3) {
-        await engineSendText({
+        const waitCopy = executiveWaitCopy(language)
+        await sendActionButtons({
           accountId: args.accountId,
           userId: args.userId,
           conversationId: args.conversationId,
           contactId: args.contactId,
-          text: birthdayTooManyAttemptsCopy(language),
+          bodyText: `${birthdayTooManyAttemptsCopy(language)}\n\n${waitCopy.body}`,
+          buttons: waitCopy.buttons,
         })
         await moveToHumanHandoff({
           accountId: args.accountId,
@@ -1190,6 +1245,18 @@ export async function handlePhase1AutoReply(
       text: birthdaySavedCopy(language, formattedBirthday),
     })
     await markNeedsHumanAttention(args.conversationId, args.accountId)
+    return true
+  }
+
+  if (conversationState === 'HUMAN_HANDOFF' && isExecutiveWaitReply(args.interactiveReplyId)) {
+    await sendMenuReply({
+      accountId: args.accountId,
+      userId: args.userId,
+      conversationId: args.conversationId,
+      contactId: args.contactId,
+      language,
+      replyId: 'MENU_BROWSE_JEWELLERY',
+    })
     return true
   }
 
