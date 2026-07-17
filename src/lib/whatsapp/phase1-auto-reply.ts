@@ -269,11 +269,11 @@ function languageConfirmedCopy(language: PreferredLanguage): string {
 function welcomeBackCopy(language: PreferredLanguage): string {
   switch (language) {
     case 'hi':
-      return 'Pradeep Jewellers में फिर से स्वागत है ✨\n\nहम आपकी कैसे मदद कर सकते हैं?'
+      return 'Pradeep Jewellers में फिर से स्वागत है ✨'
     case 'gu':
-      return 'Pradeep Jewellers માં ફરી સ્વાગત છે ✨\n\nઅમે તમારી કેવી રીતે મદદ કરી શકીએ?'
+      return 'Pradeep Jewellers માં ફરી સ્વાગત છે ✨'
     default:
-      return 'Welcome back to Pradeep Jewellers ✨\n\nHow can we help you today?'
+      return 'Welcome back to Pradeep Jewellers ✨'
   }
 }
 
@@ -680,7 +680,7 @@ async function sendMainMenu(args: {
     conversationId: args.conversationId,
     contactId: args.contactId,
     language: args.language,
-    bodyText: mainMenuPrompt(args.language),
+    bodyText: copy.body,
     rows: copy.rows,
   })
   await engineSendInteractiveList({
@@ -688,7 +688,7 @@ async function sendMainMenu(args: {
     userId: args.userId,
     conversationId: args.conversationId,
     contactId: args.contactId,
-    bodyText: mainMenuPrompt(args.language),
+    bodyText: copy.body,
     buttonLabel: args.language === 'hi' ? 'Options' : args.language === 'gu' ? 'Options' : 'Options',
     sections: [
       {
