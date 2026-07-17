@@ -326,11 +326,11 @@ function birthdayConsentCopy(language: PreferredLanguage) {
 function birthdayInputPrompt(language: PreferredLanguage): string {
   switch (language) {
     case 'hi':
-      return 'कृपया अपना birthday DD/MM/YYYY format में enter करें.\n\nExample: 16/02/1995\n\nBirth year आवश्यक है ताकि हम आपकी age calculate कर सकें और relevant offers व jewellery recommendations दे सकें.'
+      return 'कृपया अपना birthday DD/MM/YYYY format में enter करें.\n\nExample: 16/02/1995'
     case 'gu':
-      return 'કૃપા કરીને તમારો birthday DD/MM/YYYY format માં enter કરો.\n\nExample: 16/02/1995\n\nBirth year જરૂરી છે જેથી અમે તમારી age calculate કરી શકીએ અને relevant offers તથા jewellery recommendations આપી શકીએ.'
+      return 'કૃપા કરીને તમારો birthday DD/MM/YYYY format માં enter કરો.\n\nExample: 16/02/1995'
     default:
-      return 'Please enter your birthday in DD/MM/YYYY format.\n\nExample: 16/02/1995\n\nYour birth year is required so that we can calculate your age and provide relevant offers and jewellery recommendations.'
+      return 'Please enter your birthday in DD/MM/YYYY format.\n\nExample: 16/02/1995'
   }
 }
 
