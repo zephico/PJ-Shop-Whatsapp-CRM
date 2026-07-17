@@ -1,3 +1,4 @@
+import { format, isValid, parse } from 'date-fns'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { engineSendInteractiveButtons, engineSendInteractiveList, engineSendText } from '@/lib/flows/meta-send'
 import { getLatestGoldRates } from '@/lib/whatsapp/external-gold-rates'
@@ -9,6 +10,8 @@ type ConversationState =
   | 'BROWSING_JEWELLERY'
   | 'CUSTOM_JEWELLERY'
   | 'GOLD_RATE'
+  | 'AWAITING_BIRTHDAY_CONSENT'
+  | 'AWAITING_BIRTHDAY'
   | 'HUMAN_HANDOFF'
   | 'FLOW_COMPLETED'
 const BROWSE_JEWELLERY_URL = 'https://pradeepjewellers.in/products'
@@ -30,7 +33,9 @@ const MAIN_MENU_BUTTON_IDS = [
 const POST_BROWSE_BUTTON_IDS = ['POST_BROWSE_EXPLORE_MORE', 'POST_BROWSE_TALK_TO_EXECUTIVE', 'POST_BROWSE_MAIN_MENU'] as const
 const POST_CUSTOM_BUTTON_IDS = ['POST_CUSTOM_ADD_MORE_DETAILS', 'POST_CUSTOM_MAIN_MENU'] as const
 const POST_GOLD_RATE_BUTTON_IDS = ['POST_GOLD_BROWSE_JEWELLERY', 'POST_GOLD_TALK_TO_EXECUTIVE', 'POST_GOLD_MAIN_MENU'] as const
+const BIRTHDAY_CONSENT_BUTTON_IDS = ['BIRTHDAY_YES', 'BIRTHDAY_MAYBE_LATER', 'BIRTHDAY_NO_THANKS'] as const
 const MAIN_MENU_TEXT_TOKENS = ['main menu', 'menu', 'mainmenu'] as const
+type BirthdayPromptStatus = 'not_asked' | 'accepted' | 'maybe_later' | 'declined' | 'completed'
 
 interface CustomJewelleryRequestRow {
   id: string
@@ -52,6 +57,16 @@ interface Phase1ContactRow {
   last_menu_type: string | null
   last_menu_sent_at: string | null
   last_processed_inbound_message_id: string | null
+  birth_date: string | null
+  birth_day: number | null
+  birth_month: number | null
+  birth_year: number | null
+  birthday_opt_in: boolean | null
+  birthday_prompt_status: BirthdayPromptStatus | null
+  birthday_source: string | null
+  birthday_captured_at: string | null
+  birthday_invalid_attempts: number | null
+  birthday_prompt_conversation_id: string | null
 }
 
 interface HandlePhase1AutoReplyArgs {
@@ -262,6 +277,96 @@ function welcomeBackCopy(language: PreferredLanguage): string {
   }
 }
 
+function executiveConfirmationCopy(language: PreferredLanguage): string {
+  switch (language) {
+    case 'hi':
+      return 'ज़रूर! हमारा executive आपसे जल्द connect करेगा. 😊'
+    case 'gu':
+      return 'હા જરૂર! અમારો executive તમારી સાથે જલ્દી connect કરશે. 😊'
+    default:
+      return 'Sure! Our executive will connect with you shortly. 😊'
+  }
+}
+
+function birthdayConsentCopy(language: PreferredLanguage) {
+  switch (language) {
+    case 'hi':
+      return {
+        body:
+          'इस बीच, क्या आप अपना birthday हमारे साथ share करना चाहेंगे? 🎁\n\nहम इसका उपयोग birthday wishes, exclusive offers और personalised jewellery suggestions भेजने के लिए करेंगे.',
+        buttons: [
+          { id: 'BIRTHDAY_YES', title: 'Yes, Share' },
+          { id: 'BIRTHDAY_MAYBE_LATER', title: 'Maybe Later' },
+          { id: 'BIRTHDAY_NO_THANKS', title: 'No, Thanks' },
+        ],
+      }
+    case 'gu':
+      return {
+        body:
+          'આ દરમિયાન, શું તમે તમારો birthday અમારી સાથે share કરવા માંગશો? 🎁\n\nઅમે તેનો ઉપયોગ birthday wishes, exclusive offers અને personalised jewellery suggestions મોકલવા માટે કરીશું.',
+        buttons: [
+          { id: 'BIRTHDAY_YES', title: 'Yes, Share' },
+          { id: 'BIRTHDAY_MAYBE_LATER', title: 'Maybe Later' },
+          { id: 'BIRTHDAY_NO_THANKS', title: 'No, Thanks' },
+        ],
+      }
+    default:
+      return {
+        body:
+          'Meanwhile, would you like to share your birthday with us? 🎁\n\nWe’ll use it to send you birthday wishes, exclusive offers and personalised jewellery suggestions.',
+        buttons: [
+          { id: 'BIRTHDAY_YES', title: 'Yes, Share Birthday' },
+          { id: 'BIRTHDAY_MAYBE_LATER', title: 'Maybe Later' },
+          { id: 'BIRTHDAY_NO_THANKS', title: 'No, Thanks' },
+        ],
+      }
+  }
+}
+
+function birthdayInputPrompt(language: PreferredLanguage): string {
+  switch (language) {
+    case 'hi':
+      return 'कृपया अपना birthday DD/MM/YYYY format में enter करें.\n\nExample: 16/02/1995\n\nBirth year आवश्यक है ताकि हम आपकी age calculate कर सकें और relevant offers व jewellery recommendations दे सकें.'
+    case 'gu':
+      return 'કૃપા કરીને તમારો birthday DD/MM/YYYY format માં enter કરો.\n\nExample: 16/02/1995\n\nBirth year જરૂરી છે જેથી અમે તમારી age calculate કરી શકીએ અને relevant offers તથા jewellery recommendations આપી શકીએ.'
+    default:
+      return 'Please enter your birthday in DD/MM/YYYY format.\n\nExample: 16/02/1995\n\nYour birth year is required so that we can calculate your age and provide relevant offers and jewellery recommendations.'
+  }
+}
+
+function invalidBirthdayCopy(language: PreferredLanguage): string {
+  switch (language) {
+    case 'hi':
+      return "यह date valid नहीं लगती.\n\nकृपया अपना complete birthday DD/MM/YYYY format में enter करें.\n\nExample: 16/02/1995\n\nBirth year आवश्यक है."
+    case 'gu':
+      return 'આ date valid લાગતી નથી.\n\nકૃપા કરીને તમારો complete birthday DD/MM/YYYY format માં enter કરો.\n\nExample: 16/02/1995\n\nBirth year જરૂરી છે.'
+    default:
+      return "That date doesn’t look valid.\n\nPlease enter your complete birthday in DD/MM/YYYY format.\n\nExample: 16/02/1995\n\nThe birth year is required."
+  }
+}
+
+function birthdayTooManyAttemptsCopy(language: PreferredLanguage): string {
+  switch (language) {
+    case 'hi':
+      return 'कोई बात नहीं. आप अपना birthday बाद में कभी भी share कर सकते हैं.\n\nहमारा executive जल्द आपकी सहायता करेगा.'
+    case 'gu':
+      return 'કોઈ વાંધો નહીં. તમે તમારો birthday પછી ક્યારેય share કરી શકો છો.\n\nઅમારો executive જલ્દી તમારી મદદ કરશે.'
+    default:
+      return 'No problem. You can share your birthday anytime later.\n\nOur executive will assist you shortly.'
+  }
+}
+
+function birthdaySavedCopy(language: PreferredLanguage, formattedBirthday: string): string {
+  switch (language) {
+    case 'hi':
+      return `धन्यवाद! 🎉\n\nआपका birthday ${formattedBirthday} के रूप में save हो गया है.\n\nआप कभी भी इसे update या remove करने के लिए कह सकते हैं.`
+    case 'gu':
+      return `આભાર! 🎉\n\nતમારો birthday ${formattedBirthday} તરીકે save થઈ ગયો છે.\n\nતમે ક્યારેય પણ તેને update અથવા remove કરવા કહી શકો છો.`
+    default:
+      return `Thank you! 🎉\n\nYour birthday has been saved as ${formattedBirthday}.\n\nYou can ask us to update or remove it anytime.`
+  }
+}
+
 function menuReplyCopy(language: PreferredLanguage, replyId: string): string {
   if (replyId === 'MENU_BROWSE_JEWELLERY') {
     switch (language) {
@@ -385,7 +490,7 @@ function formatGoldRatesMessage(
 async function updateContactState(
   contactId: string,
   accountId: string,
-  updates: Partial<Pick<Phase1ContactRow, 'preferred_language' | 'conversation_state' | 'last_menu_type' | 'last_menu_sent_at' | 'last_processed_inbound_message_id'>>,
+  updates: Partial<Pick<Phase1ContactRow, 'preferred_language' | 'conversation_state' | 'last_menu_type' | 'last_menu_sent_at' | 'last_processed_inbound_message_id' | 'birth_date' | 'birth_day' | 'birth_month' | 'birth_year' | 'birthday_opt_in' | 'birthday_prompt_status' | 'birthday_source' | 'birthday_captured_at' | 'birthday_invalid_attempts' | 'birthday_prompt_conversation_id'>>,
 ) {
   const { error } = await supabaseAdmin()
     .from('contacts')
@@ -396,6 +501,121 @@ async function updateContactState(
   if (error) {
     throw new Error(`Failed to update contact flow state: ${error.message}`)
   }
+}
+
+function calculateAge(birthDate: Date): number {
+  const today = new Date()
+  let age = today.getFullYear() - birthDate.getFullYear()
+
+  const birthdayHasOccurred =
+    today.getMonth() > birthDate.getMonth() ||
+    (today.getMonth() === birthDate.getMonth() &&
+      today.getDate() >= birthDate.getDate())
+
+  if (!birthdayHasOccurred) age--
+  return age
+}
+
+function parseBirthdayInput(input: string): Date | null {
+  const trimmed = input.trim().replace(/\s+/g, ' ')
+  const formats = [
+    'dd/MM/yyyy',
+    'd/M/yyyy',
+    'dd-MM-yyyy',
+    'd-M-yyyy',
+    'd MMMM yyyy',
+    'dd MMMM yyyy',
+    'd MMM yyyy',
+    'dd MMM yyyy',
+    'MMMM d, yyyy',
+    'MMM d, yyyy',
+  ]
+
+  if (!/\b\d{4}\b/.test(trimmed)) return null
+  if (/\b\d{2}\/\d{2}\/\d{2}\b/.test(trimmed) || /\b\d{2}-\d{2}-\d{2}\b/.test(trimmed)) {
+    return null
+  }
+
+  for (const formatPattern of formats) {
+    const parsed = parse(trimmed, formatPattern, new Date())
+    if (!isValid(parsed)) continue
+    const age = calculateAge(parsed)
+    if (parsed > new Date()) return null
+    if (age < 0 || age > 120) return null
+    return parsed
+  }
+
+  return null
+}
+
+async function moveToHumanHandoff(args: {
+  accountId: string
+  contactId: string
+  conversationId: string
+  birthdayPromptStatus?: BirthdayPromptStatus
+  birthdayInvalidAttempts?: number
+}) {
+  await markNeedsHumanAttention(args.conversationId, args.accountId)
+  await updateContactState(args.contactId, args.accountId, {
+    conversation_state: 'HUMAN_HANDOFF',
+    last_menu_type: null,
+    birthday_prompt_status: args.birthdayPromptStatus,
+    birthday_invalid_attempts: args.birthdayInvalidAttempts,
+  })
+}
+
+async function sendExecutiveFollowup(args: {
+  accountId: string
+  userId: string
+  conversationId: string
+  contact: Phase1ContactRow
+  language: PreferredLanguage
+}) {
+  await markNeedsHumanAttention(args.conversationId, args.accountId)
+  await engineSendText({
+    accountId: args.accountId,
+    userId: args.userId,
+    conversationId: args.conversationId,
+    contactId: args.contact.id,
+    text: executiveConfirmationCopy(args.language),
+  })
+
+  const hasBirthday =
+    Boolean(args.contact.birth_date) &&
+    args.contact.birth_day !== null &&
+    args.contact.birth_month !== null &&
+    args.contact.birth_year !== null
+
+  const promptStatus = args.contact.birthday_prompt_status ?? 'not_asked'
+  const sameConversationMaybeLater =
+    promptStatus === 'maybe_later' &&
+    args.contact.birthday_prompt_conversation_id === args.conversationId
+
+  if (hasBirthday || promptStatus === 'declined' || sameConversationMaybeLater) {
+    await moveToHumanHandoff({
+      accountId: args.accountId,
+      contactId: args.contact.id,
+      conversationId: args.conversationId,
+      birthdayPromptStatus: promptStatus,
+      birthdayInvalidAttempts: 0,
+    })
+    return
+  }
+
+  const consent = birthdayConsentCopy(args.language)
+  await sendActionButtons({
+    accountId: args.accountId,
+    userId: args.userId,
+    conversationId: args.conversationId,
+    contactId: args.contact.id,
+    bodyText: consent.body,
+    buttons: consent.buttons,
+  })
+  await updateContactState(args.contact.id, args.accountId, {
+    conversation_state: 'AWAITING_BIRTHDAY_CONSENT',
+    birthday_prompt_conversation_id: args.conversationId,
+    birthday_invalid_attempts: 0,
+  })
 }
 
 function isGreeting(text: string): boolean {
@@ -559,7 +779,7 @@ async function sendActionButtons(args: {
 async function getContactRow(contactId: string, accountId: string): Promise<Phase1ContactRow | null> {
   const { data, error } = await supabaseAdmin()
     .from('contacts')
-    .select('id, account_id, name, preferred_language, conversation_state, last_menu_type, last_menu_sent_at, last_processed_inbound_message_id')
+    .select('id, account_id, name, preferred_language, conversation_state, last_menu_type, last_menu_sent_at, last_processed_inbound_message_id, birth_date, birth_day, birth_month, birth_year, birthday_opt_in, birthday_prompt_status, birthday_source, birthday_captured_at, birthday_invalid_attempts, birthday_prompt_conversation_id')
     .eq('id', contactId)
     .eq('account_id', accountId)
     .maybeSingle()
@@ -769,6 +989,10 @@ function isPostGoldRateReply(id: string | null): id is (typeof POST_GOLD_RATE_BU
   return Boolean(id && POST_GOLD_RATE_BUTTON_IDS.includes(id as (typeof POST_GOLD_RATE_BUTTON_IDS)[number]))
 }
 
+function isBirthdayConsentReply(id: string | null): id is (typeof BIRTHDAY_CONSENT_BUTTON_IDS)[number] {
+  return Boolean(id && BIRTHDAY_CONSENT_BUTTON_IDS.includes(id as (typeof BIRTHDAY_CONSENT_BUTTON_IDS)[number]))
+}
+
 function languageFromButton(id: (typeof LANGUAGE_BUTTON_IDS)[number]): PreferredLanguage {
   switch (id) {
     case 'LANG_HI':
@@ -858,6 +1082,117 @@ export async function handlePhase1AutoReply(
     return true
   }
 
+  if (conversationState === 'AWAITING_BIRTHDAY_CONSENT' && isBirthdayConsentReply(args.interactiveReplyId)) {
+    if (args.interactiveReplyId === 'BIRTHDAY_YES') {
+      await updateContactState(args.contactId, args.accountId, {
+        conversation_state: 'AWAITING_BIRTHDAY',
+        birthday_prompt_status: 'accepted',
+        birthday_invalid_attempts: 0,
+        birthday_prompt_conversation_id: args.conversationId,
+      })
+      await engineSendText({
+        accountId: args.accountId,
+        userId: args.userId,
+        conversationId: args.conversationId,
+        contactId: args.contactId,
+        text: birthdayInputPrompt(language),
+      })
+      return true
+    }
+
+    if (args.interactiveReplyId === 'BIRTHDAY_MAYBE_LATER') {
+      await moveToHumanHandoff({
+        accountId: args.accountId,
+        contactId: args.contactId,
+        conversationId: args.conversationId,
+        birthdayPromptStatus: 'maybe_later',
+        birthdayInvalidAttempts: 0,
+      })
+      return true
+    }
+
+    await moveToHumanHandoff({
+      accountId: args.accountId,
+      contactId: args.contactId,
+      conversationId: args.conversationId,
+      birthdayPromptStatus: 'declined',
+      birthdayInvalidAttempts: 0,
+    })
+    return true
+  }
+
+  if (conversationState === 'AWAITING_BIRTHDAY') {
+    const inboundText = args.inboundText?.trim()
+    if (!inboundText) {
+      await engineSendText({
+        accountId: args.accountId,
+        userId: args.userId,
+        conversationId: args.conversationId,
+        contactId: args.contactId,
+        text: invalidBirthdayCopy(language),
+      })
+      return true
+    }
+
+    const parsedBirthday = parseBirthdayInput(inboundText)
+    if (!parsedBirthday) {
+      const attempts = (contact.birthday_invalid_attempts ?? 0) + 1
+      if (attempts >= 3) {
+        await engineSendText({
+          accountId: args.accountId,
+          userId: args.userId,
+          conversationId: args.conversationId,
+          contactId: args.contactId,
+          text: birthdayTooManyAttemptsCopy(language),
+        })
+        await moveToHumanHandoff({
+          accountId: args.accountId,
+          contactId: args.contactId,
+          conversationId: args.conversationId,
+          birthdayPromptStatus: 'maybe_later',
+          birthdayInvalidAttempts: 0,
+        })
+        return true
+      }
+
+      await updateContactState(args.contactId, args.accountId, {
+        birthday_invalid_attempts: attempts,
+      })
+      await engineSendText({
+        accountId: args.accountId,
+        userId: args.userId,
+        conversationId: args.conversationId,
+        contactId: args.contactId,
+        text: invalidBirthdayCopy(language),
+      })
+      return true
+    }
+
+    const formattedBirthday = format(parsedBirthday, 'd MMMM yyyy')
+    await updateContactState(args.contactId, args.accountId, {
+      birth_date: format(parsedBirthday, 'yyyy-MM-dd'),
+      birth_day: parsedBirthday.getDate(),
+      birth_month: parsedBirthday.getMonth() + 1,
+      birth_year: parsedBirthday.getFullYear(),
+      birthday_opt_in: true,
+      birthday_prompt_status: 'completed',
+      birthday_source: 'talk_to_executive_flow',
+      birthday_captured_at: new Date().toISOString(),
+      birthday_invalid_attempts: 0,
+      conversation_state: 'HUMAN_HANDOFF',
+      last_menu_type: null,
+    })
+    await engineSendText({
+      accountId: args.accountId,
+      userId: args.userId,
+      conversationId: args.conversationId,
+      contactId: args.contactId,
+      text: birthdaySavedCopy(language, formattedBirthday),
+    })
+    await markNeedsHumanAttention(args.conversationId, args.accountId)
+    return true
+  }
+
   if (conversationState === 'HUMAN_HANDOFF') {
     if (isMainMenuText(args.inboundText ?? '')) {
       await updateContactState(args.contactId, args.accountId, {
@@ -904,19 +1239,13 @@ export async function handlePhase1AutoReply(
     }
 
     if (args.interactiveReplyId === 'MENU_TALK_TO_EXECUTIVE') {
-      await updateContactState(args.contactId, args.accountId, {
-        conversation_state: 'HUMAN_HANDOFF',
-        last_menu_type: null,
-      })
-      await sendMenuReply({
+      await sendExecutiveFollowup({
         accountId: args.accountId,
         userId: args.userId,
         conversationId: args.conversationId,
-        contactId: args.contactId,
+        contact,
         language,
-        replyId: args.interactiveReplyId,
       })
-      await markNeedsHumanAttention(args.conversationId, args.accountId)
       return true
     }
 
@@ -997,19 +1326,13 @@ export async function handlePhase1AutoReply(
       return true
     }
     if (args.interactiveReplyId === 'POST_BROWSE_TALK_TO_EXECUTIVE') {
-      await updateContactState(args.contactId, args.accountId, {
-        conversation_state: 'HUMAN_HANDOFF',
-        last_menu_type: null,
-      })
-      await sendMenuReply({
+      await sendExecutiveFollowup({
         accountId: args.accountId,
         userId: args.userId,
         conversationId: args.conversationId,
-        contactId: args.contactId,
+        contact,
         language,
-        replyId: 'MENU_TALK_TO_EXECUTIVE',
       })
-      await markNeedsHumanAttention(args.conversationId, args.accountId)
       return true
     }
     await sendMainMenu({
@@ -1046,19 +1369,13 @@ export async function handlePhase1AutoReply(
       return true
     }
     if (args.interactiveReplyId === 'POST_GOLD_TALK_TO_EXECUTIVE') {
-      await updateContactState(args.contactId, args.accountId, {
-        conversation_state: 'HUMAN_HANDOFF',
-        last_menu_type: null,
-      })
-      await sendMenuReply({
+      await sendExecutiveFollowup({
         accountId: args.accountId,
         userId: args.userId,
         conversationId: args.conversationId,
-        contactId: args.contactId,
+        contact,
         language,
-        replyId: 'MENU_TALK_TO_EXECUTIVE',
       })
-      await markNeedsHumanAttention(args.conversationId, args.accountId)
       return true
     }
     await sendMenuReply({
