@@ -120,7 +120,7 @@ export default function InboxPage() {
       const supabase = createClient();
       const { data, error } = await supabase
         .from("conversations")
-        .select("*, contact:contacts(*)")
+        .select("*, contact:contacts!conversations_contact_id_fkey(*)")
         .eq("id", convId)
         .maybeSingle();
       if (error) {

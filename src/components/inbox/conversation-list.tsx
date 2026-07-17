@@ -81,7 +81,7 @@ export function ConversationList({
     (async () => {
       const { data, error } = await supabase
         .from("conversations")
-        .select("*, contact:contacts(*)")
+        .select("*, contact:contacts!conversations_contact_id_fkey(*)")
         .order("last_message_at", { ascending: false });
 
       if (cancelled) return;
