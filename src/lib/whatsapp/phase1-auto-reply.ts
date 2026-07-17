@@ -3,7 +3,14 @@ import { engineSendInteractiveButtons, engineSendInteractiveList, engineSendText
 import { getLatestGoldRates } from '@/lib/whatsapp/external-gold-rates'
 
 type PreferredLanguage = 'en' | 'hi' | 'gu'
-type ConversationState = 'AWAITING_LANGUAGE_SELECTION' | 'MAIN_MENU'
+type ConversationState =
+  | 'AWAITING_LANGUAGE_SELECTION'
+  | 'MAIN_MENU'
+  | 'BROWSING_JEWELLERY'
+  | 'CUSTOM_JEWELLERY'
+  | 'GOLD_RATE'
+  | 'HUMAN_HANDOFF'
+  | 'FLOW_COMPLETED'
 const BROWSE_JEWELLERY_URL = 'https://pradeepjewellers.in/products'
 type CustomRequestStatus =
   | 'awaiting_category'
@@ -20,6 +27,10 @@ const MAIN_MENU_BUTTON_IDS = [
   'MENU_GOLD_RATE',
   'MENU_TALK_TO_EXECUTIVE',
 ] as const
+const POST_BROWSE_BUTTON_IDS = ['POST_BROWSE_EXPLORE_MORE', 'POST_BROWSE_TALK_TO_EXECUTIVE', 'POST_BROWSE_MAIN_MENU'] as const
+const POST_CUSTOM_BUTTON_IDS = ['POST_CUSTOM_ADD_MORE_DETAILS', 'POST_CUSTOM_MAIN_MENU'] as const
+const POST_GOLD_RATE_BUTTON_IDS = ['POST_GOLD_BROWSE_JEWELLERY', 'POST_GOLD_TALK_TO_EXECUTIVE', 'POST_GOLD_MAIN_MENU'] as const
+const MAIN_MENU_TEXT_TOKENS = ['main menu', 'menu', 'mainmenu'] as const
 
 interface CustomJewelleryRequestRow {
   id: string
@@ -38,6 +49,9 @@ interface Phase1ContactRow {
   name: string | null
   preferred_language: PreferredLanguage | null
   conversation_state: ConversationState | null
+  last_menu_type: string | null
+  last_menu_sent_at: string | null
+  last_processed_inbound_message_id: string | null
 }
 
 interface HandlePhase1AutoReplyArgs {
@@ -52,6 +66,7 @@ interface HandlePhase1AutoReplyArgs {
   inboundMediaUrl: string | null
   inboundStoredMediaUrl: string | null
   inboundMediaMimeType: string | null
+  inboundMessageId: string
 }
 
 const isDev = process.env.NODE_ENV !== 'production'
@@ -118,6 +133,132 @@ function mainMenuCopy(language: PreferredLanguage) {
           { id: 'MENU_TALK_TO_EXECUTIVE', title: 'Talk to Executive' },
         ],
       }
+  }
+}
+
+function mainMenuPrompt(language: PreferredLanguage): string {
+  switch (language) {
+    case 'hi':
+      return 'कृपया नीचे दिए गए options में से चुनें.'
+    case 'gu':
+      return 'કૃપા કરીને નીચેના options માંથી પસંદ કરો.'
+    default:
+      return 'Please choose one of the options below.'
+  }
+}
+
+function postBrowseCopy(language: PreferredLanguage) {
+  switch (language) {
+    case 'hi':
+      return {
+        body: 'क्या आप another category देखना चाहेंगे या हमारे jewellery expert से बात करना चाहेंगे?',
+        buttons: [
+          { id: 'POST_BROWSE_EXPLORE_MORE', title: 'Explore More' },
+          { id: 'POST_BROWSE_TALK_TO_EXECUTIVE', title: 'Executive' },
+          { id: 'POST_BROWSE_MAIN_MENU', title: 'Main Menu' },
+        ],
+      }
+    case 'gu':
+      return {
+        body: 'શું તમે બીજી category જોવા માંગો છો કે અમારા jewellery expert સાથે વાત કરવી છે?',
+        buttons: [
+          { id: 'POST_BROWSE_EXPLORE_MORE', title: 'Explore More' },
+          { id: 'POST_BROWSE_TALK_TO_EXECUTIVE', title: 'Executive' },
+          { id: 'POST_BROWSE_MAIN_MENU', title: 'Main Menu' },
+        ],
+      }
+    default:
+      return {
+        body: 'Would you like to explore another category or speak with our jewellery expert?',
+        buttons: [
+          { id: 'POST_BROWSE_EXPLORE_MORE', title: 'Explore More' },
+          { id: 'POST_BROWSE_TALK_TO_EXECUTIVE', title: 'Executive' },
+          { id: 'POST_BROWSE_MAIN_MENU', title: 'Main Menu' },
+        ],
+      }
+  }
+}
+
+function postGoldRateCopy(language: PreferredLanguage) {
+  switch (language) {
+    case 'hi':
+      return {
+        body: 'क्या आप jewellery browse करना चाहेंगे या executive से बात करना चाहेंगे?',
+        buttons: [
+          { id: 'POST_GOLD_BROWSE_JEWELLERY', title: 'Browse' },
+          { id: 'POST_GOLD_TALK_TO_EXECUTIVE', title: 'Executive' },
+          { id: 'POST_GOLD_MAIN_MENU', title: 'Main Menu' },
+        ],
+      }
+    case 'gu':
+      return {
+        body: 'શું તમે jewellery browse કરશો કે executive સાથે વાત કરશો?',
+        buttons: [
+          { id: 'POST_GOLD_BROWSE_JEWELLERY', title: 'Browse' },
+          { id: 'POST_GOLD_TALK_TO_EXECUTIVE', title: 'Executive' },
+          { id: 'POST_GOLD_MAIN_MENU', title: 'Main Menu' },
+        ],
+      }
+    default:
+      return {
+        body: 'Would you like to browse jewellery or talk to an executive?',
+        buttons: [
+          { id: 'POST_GOLD_BROWSE_JEWELLERY', title: 'Browse' },
+          { id: 'POST_GOLD_TALK_TO_EXECUTIVE', title: 'Executive' },
+          { id: 'POST_GOLD_MAIN_MENU', title: 'Main Menu' },
+        ],
+      }
+  }
+}
+
+function postCustomCopy(language: PreferredLanguage) {
+  switch (language) {
+    case 'hi':
+      return {
+        body: 'धन्यवाद. आपकी custom jewellery enquiry submit हो गई है. हमारा executive जल्द contact करेगा.',
+        buttons: [
+          { id: 'POST_CUSTOM_ADD_MORE_DETAILS', title: 'Add Details' },
+          { id: 'POST_CUSTOM_MAIN_MENU', title: 'Main Menu' },
+        ],
+      }
+    case 'gu':
+      return {
+        body: 'આભાર. તમારી custom jewellery enquiry submit થઈ ગઈ છે. અમારો executive જલ્દી સંપર્ક કરશે.',
+        buttons: [
+          { id: 'POST_CUSTOM_ADD_MORE_DETAILS', title: 'Add Details' },
+          { id: 'POST_CUSTOM_MAIN_MENU', title: 'Main Menu' },
+        ],
+      }
+    default:
+      return {
+        body: 'Thank you. Your custom jewellery enquiry has been submitted. Our executive will contact you shortly.',
+        buttons: [
+          { id: 'POST_CUSTOM_ADD_MORE_DETAILS', title: 'Add Details' },
+          { id: 'POST_CUSTOM_MAIN_MENU', title: 'Main Menu' },
+        ],
+      }
+  }
+}
+
+function languageConfirmedCopy(language: PreferredLanguage): string {
+  switch (language) {
+    case 'hi':
+      return 'धन्यवाद! अब हम हिन्दी में आगे बढ़ेंगे.\n\nहम आपकी कैसे मदद कर सकते हैं? ✨'
+    case 'gu':
+      return 'આભાર! હવે અમે ગુજરાતી માં આગળ વધીએ છીએ.\n\nઅમે તમારી કેવી રીતે મદદ કરી શકીએ? ✨'
+    default:
+      return "Thank you! We'll continue in English.\n\nHow can we help you today? ✨"
+  }
+}
+
+function welcomeBackCopy(language: PreferredLanguage): string {
+  switch (language) {
+    case 'hi':
+      return 'Pradeep Jewellers में फिर से स्वागत है ✨\n\nहम आपकी कैसे मदद कर सकते हैं?'
+    case 'gu':
+      return 'Pradeep Jewellers માં ફરી સ્વાગત છે ✨\n\nઅમે તમારી કેવી રીતે મદદ કરી શકીએ?'
+    default:
+      return 'Welcome back to Pradeep Jewellers ✨\n\nHow can we help you today?'
   }
 }
 
@@ -244,7 +385,7 @@ function formatGoldRatesMessage(
 async function updateContactState(
   contactId: string,
   accountId: string,
-  updates: Partial<Pick<Phase1ContactRow, 'preferred_language' | 'conversation_state'>>,
+  updates: Partial<Pick<Phase1ContactRow, 'preferred_language' | 'conversation_state' | 'last_menu_type' | 'last_menu_sent_at' | 'last_processed_inbound_message_id'>>,
 ) {
   const { error } = await supabaseAdmin()
     .from('contacts')
@@ -255,6 +396,16 @@ async function updateContactState(
   if (error) {
     throw new Error(`Failed to update contact flow state: ${error.message}`)
   }
+}
+
+function isGreeting(text: string): boolean {
+  const normalized = text.trim().toLowerCase()
+  return ['hi', 'hello', 'hey', 'hii', 'namaste', 'namaskar'].includes(normalized)
+}
+
+function isMainMenuText(text: string): boolean {
+  const normalized = text.trim().toLowerCase()
+  return MAIN_MENU_TEXT_TOKENS.some((token) => normalized === token)
 }
 
 async function sendLanguageSelection(args: {
@@ -290,13 +441,26 @@ async function sendMainMenu(args: {
   conversationId: string
   contactId: string
   language: PreferredLanguage
+  contact: Phase1ContactRow
+  force?: boolean
 }) {
+  if (
+    !args.force &&
+    args.contact.conversation_state === 'MAIN_MENU' &&
+    args.contact.last_menu_type === 'main_menu'
+  ) {
+    logDev('[phase1] skip duplicate main menu', {
+      conversationId: args.conversationId,
+      contactId: args.contactId,
+    })
+    return
+  }
   const copy = mainMenuCopy(args.language)
   logDev('[phase1] sending main menu', {
     conversationId: args.conversationId,
     contactId: args.contactId,
     language: args.language,
-    bodyText: copy.body,
+    bodyText: mainMenuPrompt(args.language),
     rows: copy.rows,
   })
   await engineSendInteractiveList({
@@ -304,7 +468,7 @@ async function sendMainMenu(args: {
     userId: args.userId,
     conversationId: args.conversationId,
     contactId: args.contactId,
-    bodyText: copy.body,
+    bodyText: mainMenuPrompt(args.language),
     buttonLabel: args.language === 'hi' ? 'Options' : args.language === 'gu' ? 'Options' : 'Options',
     sections: [
       {
@@ -314,6 +478,11 @@ async function sendMainMenu(args: {
         })),
       },
     ],
+  })
+  await updateContactState(args.contactId, args.accountId, {
+    conversation_state: 'MAIN_MENU',
+    last_menu_type: 'main_menu',
+    last_menu_sent_at: new Date().toISOString(),
   })
 }
 
@@ -369,10 +538,28 @@ async function markNeedsHumanAttention(conversationId: string, accountId: string
   }
 }
 
+async function sendActionButtons(args: {
+  accountId: string
+  userId: string
+  conversationId: string
+  contactId: string
+  bodyText: string
+  buttons: Array<{ id: string; title: string }>
+}) {
+  await engineSendInteractiveButtons({
+    accountId: args.accountId,
+    userId: args.userId,
+    conversationId: args.conversationId,
+    contactId: args.contactId,
+    bodyText: args.bodyText,
+    buttons: args.buttons,
+  })
+}
+
 async function getContactRow(contactId: string, accountId: string): Promise<Phase1ContactRow | null> {
   const { data, error } = await supabaseAdmin()
     .from('contacts')
-    .select('id, account_id, name, preferred_language, conversation_state')
+    .select('id, account_id, name, preferred_language, conversation_state, last_menu_type, last_menu_sent_at, last_processed_inbound_message_id')
     .eq('id', contactId)
     .eq('account_id', accountId)
     .maybeSingle()
@@ -546,6 +733,15 @@ async function handleOpenCustomRequest(args: {
       contactId: args.contactId,
       text: customRequestPrompt(args.language, 'pending_review'),
     })
+    const next = postCustomCopy(args.language)
+    await sendActionButtons({
+      accountId: args.accountId,
+      userId: args.userId,
+      conversationId: args.conversationId,
+      contactId: args.contactId,
+      bodyText: next.body,
+      buttons: next.buttons,
+    })
     await markNeedsHumanAttention(args.conversationId, args.accountId)
     return true
   }
@@ -559,6 +755,18 @@ function isLanguageButtonReply(id: string | null): id is (typeof LANGUAGE_BUTTON
 
 function isMainMenuReply(id: string | null): id is (typeof MAIN_MENU_BUTTON_IDS)[number] {
   return Boolean(id && MAIN_MENU_BUTTON_IDS.includes(id as (typeof MAIN_MENU_BUTTON_IDS)[number]))
+}
+
+function isPostBrowseReply(id: string | null): id is (typeof POST_BROWSE_BUTTON_IDS)[number] {
+  return Boolean(id && POST_BROWSE_BUTTON_IDS.includes(id as (typeof POST_BROWSE_BUTTON_IDS)[number]))
+}
+
+function isPostCustomReply(id: string | null): id is (typeof POST_CUSTOM_BUTTON_IDS)[number] {
+  return Boolean(id && POST_CUSTOM_BUTTON_IDS.includes(id as (typeof POST_CUSTOM_BUTTON_IDS)[number]))
+}
+
+function isPostGoldRateReply(id: string | null): id is (typeof POST_GOLD_RATE_BUTTON_IDS)[number] {
+  return Boolean(id && POST_GOLD_RATE_BUTTON_IDS.includes(id as (typeof POST_GOLD_RATE_BUTTON_IDS)[number]))
 }
 
 function languageFromButton(id: (typeof LANGUAGE_BUTTON_IDS)[number]): PreferredLanguage {
@@ -589,6 +797,19 @@ export async function handlePhase1AutoReply(
     selectedLanguage: preferredLanguage,
     interactiveReplyId: args.interactiveReplyId,
     inboundText: args.inboundText,
+    inboundMessageId: args.inboundMessageId,
+  })
+
+  if (contact.last_processed_inbound_message_id === args.inboundMessageId) {
+    logDev('[phase1] skip already processed inbound id on contact', {
+      contactId: args.contactId,
+      inboundMessageId: args.inboundMessageId,
+    })
+    return true
+  }
+
+  await updateContactState(args.contactId, args.accountId, {
+    last_processed_inbound_message_id: args.inboundMessageId,
   })
 
   const language = preferredLanguage ?? 'en'
@@ -611,6 +832,14 @@ export async function handlePhase1AutoReply(
     await updateContactState(args.contactId, args.accountId, {
       preferred_language: selectedLanguage,
       conversation_state: 'MAIN_MENU',
+      last_menu_type: null,
+    })
+    await engineSendText({
+      accountId: args.accountId,
+      userId: args.userId,
+      conversationId: args.conversationId,
+      contactId: args.contactId,
+      text: languageConfirmedCopy(selectedLanguage),
     })
     await sendMainMenu({
       accountId: args.accountId,
@@ -618,21 +847,113 @@ export async function handlePhase1AutoReply(
       conversationId: args.conversationId,
       contactId: args.contactId,
       language: selectedLanguage,
+      contact: {
+        ...contact,
+        preferred_language: selectedLanguage,
+        conversation_state: 'FLOW_COMPLETED',
+        last_menu_type: null,
+      },
+      force: true,
     })
     return true
   }
 
+  if (conversationState === 'HUMAN_HANDOFF') {
+    if (isMainMenuText(args.inboundText ?? '')) {
+      await updateContactState(args.contactId, args.accountId, {
+        conversation_state: 'MAIN_MENU',
+        last_menu_type: null,
+      })
+      await sendMainMenu({
+        accountId: args.accountId,
+        userId: args.userId,
+        conversationId: args.conversationId,
+        contactId: args.contactId,
+        language,
+        contact: {
+          ...contact,
+          conversation_state: 'FLOW_COMPLETED',
+          last_menu_type: null,
+        },
+        force: true,
+      })
+    }
+    return true
+  }
+
   if (isMainMenuReply(args.interactiveReplyId)) {
-    await updateContactState(args.contactId, args.accountId, {
-      conversation_state: 'MAIN_MENU',
-    })
     if (args.interactiveReplyId === 'MENU_CUSTOM_JEWELLERY') {
+      await updateContactState(args.contactId, args.accountId, {
+        conversation_state: 'CUSTOM_JEWELLERY',
+        last_menu_type: null,
+      })
       await createCustomRequest({
         accountId: args.accountId,
         contactId: args.contactId,
         conversationId: args.conversationId,
       })
+      await sendMenuReply({
+        accountId: args.accountId,
+        userId: args.userId,
+        conversationId: args.conversationId,
+        contactId: args.contactId,
+        language,
+        replyId: args.interactiveReplyId,
+      })
+      return true
     }
+
+    if (args.interactiveReplyId === 'MENU_TALK_TO_EXECUTIVE') {
+      await updateContactState(args.contactId, args.accountId, {
+        conversation_state: 'HUMAN_HANDOFF',
+        last_menu_type: null,
+      })
+      await sendMenuReply({
+        accountId: args.accountId,
+        userId: args.userId,
+        conversationId: args.conversationId,
+        contactId: args.contactId,
+        language,
+        replyId: args.interactiveReplyId,
+      })
+      await markNeedsHumanAttention(args.conversationId, args.accountId)
+      return true
+    }
+
+    if (args.interactiveReplyId === 'MENU_BROWSE_JEWELLERY') {
+      await updateContactState(args.contactId, args.accountId, {
+        conversation_state: 'BROWSING_JEWELLERY',
+        last_menu_type: null,
+      })
+      await sendMenuReply({
+        accountId: args.accountId,
+        userId: args.userId,
+        conversationId: args.conversationId,
+        contactId: args.contactId,
+        language,
+        replyId: args.interactiveReplyId,
+      })
+      const next = postBrowseCopy(language)
+      await sendActionButtons({
+        accountId: args.accountId,
+        userId: args.userId,
+        conversationId: args.conversationId,
+        contactId: args.contactId,
+        bodyText: next.body,
+        buttons: next.buttons,
+      })
+      await updateContactState(args.contactId, args.accountId, {
+        conversation_state: 'FLOW_COMPLETED',
+        last_menu_type: 'post_browse',
+        last_menu_sent_at: new Date().toISOString(),
+      })
+      return true
+    }
+
+    await updateContactState(args.contactId, args.accountId, {
+      conversation_state: 'GOLD_RATE',
+      last_menu_type: null,
+    })
     await sendMenuReply({
       accountId: args.accountId,
       userId: args.userId,
@@ -641,9 +962,163 @@ export async function handlePhase1AutoReply(
       language,
       replyId: args.interactiveReplyId,
     })
-    if (args.interactiveReplyId === 'MENU_TALK_TO_EXECUTIVE') {
-      await markNeedsHumanAttention(args.conversationId, args.accountId)
+    const next = postGoldRateCopy(language)
+    await sendActionButtons({
+      accountId: args.accountId,
+      userId: args.userId,
+      conversationId: args.conversationId,
+      contactId: args.contactId,
+      bodyText: next.body,
+      buttons: next.buttons,
+    })
+    await updateContactState(args.contactId, args.accountId, {
+      conversation_state: 'FLOW_COMPLETED',
+      last_menu_type: 'post_gold_rate',
+      last_menu_sent_at: new Date().toISOString(),
+    })
+    return true
+  }
+
+  if (isPostBrowseReply(args.interactiveReplyId)) {
+    if (args.interactiveReplyId === 'POST_BROWSE_MAIN_MENU') {
+      await sendMainMenu({
+        accountId: args.accountId,
+        userId: args.userId,
+        conversationId: args.conversationId,
+        contactId: args.contactId,
+        language,
+        contact: {
+          ...contact,
+          conversation_state: 'FLOW_COMPLETED',
+          last_menu_type: 'post_browse',
+        },
+        force: true,
+      })
+      return true
     }
+    if (args.interactiveReplyId === 'POST_BROWSE_TALK_TO_EXECUTIVE') {
+      await updateContactState(args.contactId, args.accountId, {
+        conversation_state: 'HUMAN_HANDOFF',
+        last_menu_type: null,
+      })
+      await sendMenuReply({
+        accountId: args.accountId,
+        userId: args.userId,
+        conversationId: args.conversationId,
+        contactId: args.contactId,
+        language,
+        replyId: 'MENU_TALK_TO_EXECUTIVE',
+      })
+      await markNeedsHumanAttention(args.conversationId, args.accountId)
+      return true
+    }
+    await sendMainMenu({
+      accountId: args.accountId,
+      userId: args.userId,
+      conversationId: args.conversationId,
+      contactId: args.contactId,
+      language,
+      contact: {
+        ...contact,
+        conversation_state: 'FLOW_COMPLETED',
+        last_menu_type: 'post_browse',
+      },
+      force: true,
+    })
+    return true
+  }
+
+  if (isPostGoldRateReply(args.interactiveReplyId)) {
+    if (args.interactiveReplyId === 'POST_GOLD_MAIN_MENU') {
+      await sendMainMenu({
+        accountId: args.accountId,
+        userId: args.userId,
+        conversationId: args.conversationId,
+        contactId: args.contactId,
+        language,
+        contact: {
+          ...contact,
+          conversation_state: 'FLOW_COMPLETED',
+          last_menu_type: 'post_gold_rate',
+        },
+        force: true,
+      })
+      return true
+    }
+    if (args.interactiveReplyId === 'POST_GOLD_TALK_TO_EXECUTIVE') {
+      await updateContactState(args.contactId, args.accountId, {
+        conversation_state: 'HUMAN_HANDOFF',
+        last_menu_type: null,
+      })
+      await sendMenuReply({
+        accountId: args.accountId,
+        userId: args.userId,
+        conversationId: args.conversationId,
+        contactId: args.contactId,
+        language,
+        replyId: 'MENU_TALK_TO_EXECUTIVE',
+      })
+      await markNeedsHumanAttention(args.conversationId, args.accountId)
+      return true
+    }
+    await sendMenuReply({
+      accountId: args.accountId,
+      userId: args.userId,
+      conversationId: args.conversationId,
+      contactId: args.contactId,
+      language,
+      replyId: 'MENU_BROWSE_JEWELLERY',
+    })
+    const next = postBrowseCopy(language)
+    await sendActionButtons({
+      accountId: args.accountId,
+      userId: args.userId,
+      conversationId: args.conversationId,
+      contactId: args.contactId,
+      bodyText: next.body,
+      buttons: next.buttons,
+    })
+    await updateContactState(args.contactId, args.accountId, {
+      conversation_state: 'FLOW_COMPLETED',
+      last_menu_type: 'post_browse',
+      last_menu_sent_at: new Date().toISOString(),
+    })
+    return true
+  }
+
+  if (isPostCustomReply(args.interactiveReplyId)) {
+    if (args.interactiveReplyId === 'POST_CUSTOM_MAIN_MENU') {
+      await sendMainMenu({
+        accountId: args.accountId,
+        userId: args.userId,
+        conversationId: args.conversationId,
+        contactId: args.contactId,
+        language,
+        contact: {
+          ...contact,
+          conversation_state: 'FLOW_COMPLETED',
+          last_menu_type: 'post_custom',
+        },
+        force: true,
+      })
+      return true
+    }
+    await createCustomRequest({
+      accountId: args.accountId,
+      contactId: args.contactId,
+      conversationId: args.conversationId,
+    })
+    await updateContactState(args.contactId, args.accountId, {
+      conversation_state: 'CUSTOM_JEWELLERY',
+      last_menu_type: null,
+    })
+    await engineSendText({
+      accountId: args.accountId,
+      userId: args.userId,
+      conversationId: args.conversationId,
+      contactId: args.contactId,
+      text: customRequestPrompt(language, 'awaiting_category'),
+    })
     return true
   }
 
@@ -664,8 +1139,14 @@ export async function handlePhase1AutoReply(
     return true
   }
 
-  await updateContactState(args.contactId, args.accountId, {
-    conversation_state: 'MAIN_MENU',
+  if (!isGreeting(inboundText) && !isMainMenuText(inboundText)) return false
+
+  await engineSendText({
+    accountId: args.accountId,
+    userId: args.userId,
+    conversationId: args.conversationId,
+    contactId: args.contactId,
+    text: welcomeBackCopy(preferredLanguage),
   })
   await sendMainMenu({
     accountId: args.accountId,
@@ -673,6 +1154,11 @@ export async function handlePhase1AutoReply(
     conversationId: args.conversationId,
     contactId: args.contactId,
     language: preferredLanguage,
+    contact: {
+      ...contact,
+      conversation_state: 'FLOW_COMPLETED',
+    },
+    force: true,
   })
   return true
 }
