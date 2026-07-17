@@ -562,6 +562,20 @@ async function processMessage(
     return
   }
 
+  const { data: existingInbound } = await supabaseAdmin()
+    .from('messages')
+    .select('id')
+    .eq('message_id', message.id)
+    .maybeSingle()
+  if (existingInbound?.id) {
+    console.info('[webhook] duplicate inbound skipped', {
+      whatsappMessageId: message.id,
+      conversationId: conversation.id,
+      contactId: contactRecord.id,
+    })
+    return
+  }
+
   // Parse message content based on type
   const { contentText, mediaUrl, mediaType, interactiveReplyId } =
     await parseMessageContent(message, accessToken)
@@ -760,6 +774,7 @@ async function processMessage(
       inboundMediaUrl: mediaUrl,
       inboundStoredMediaUrl: persistedInboundMediaUrl,
       inboundMediaMimeType: mediaType,
+      inboundMessageId: message.id,
     })
   } catch (error) {
     console.error('[phase1] auto-reply failed:', {
