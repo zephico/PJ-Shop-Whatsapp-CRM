@@ -33,7 +33,7 @@ export async function sendWhatsAppReplyFromTelegram(
 
   const { data: conversation, error: conversationError } = await db
     .from("conversations")
-    .select("id, account_id, contact:contacts(id, phone, name)")
+    .select("id, account_id, contact:contacts!conversations_contact_id_fkey(id, phone, name)")
     .eq("id", args.conversationId)
     .eq("account_id", args.accountId)
     .maybeSingle();
