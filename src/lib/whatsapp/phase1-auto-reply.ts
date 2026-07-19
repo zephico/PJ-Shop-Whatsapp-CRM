@@ -489,22 +489,22 @@ function formatGoldRatesMessage(
           ? '22K Gold: ઉપલબ્ધ નથી'
           : '22K Gold: unavailable'
 
-  const line24 =
-    rates.rate24k
-      ? `24K Gold: INR ${rates.rate24k.price}/${rates.rate24k.unit.replace('_', ' ')}`
+  const silver =
+    rates.rateSilver
+      ? `Silver: INR ${rates.rateSilver.price}/${rates.rateSilver.unit.replace('_', ' ')}`
       : language === 'hi'
-        ? '24K Gold: उपलब्ध नहीं'
+        ? 'Silver: उपलब्ध नहीं'
         : language === 'gu'
-          ? '24K Gold: ઉપલબ્ધ નથી'
-          : '24K Gold: unavailable'
+          ? 'Silver: ઉપલબ્ધ નથી'
+          : 'Silver: unavailable'
 
   switch (language) {
     case 'hi':
-      return `आज के gold rates:\n${line22}\n${line24}`
+      return `आज के rates:\n${line22}\n${silver}`
     case 'gu':
-      return `આજના gold rates:\n${line22}\n${line24}`
+      return `આજના rates:\n${line22}\n${silver}`
     default:
-      return `Today's gold rates:\n${line22}\n${line24}`
+      return `Today's rates:\n${line22}\n${silver}`
   }
 }
 
