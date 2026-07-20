@@ -15,6 +15,10 @@ import { notifyTelegramIncomingMessage } from '@/lib/telegram/notifier'
 import { handlePhase1AutoReply } from '@/lib/whatsapp/phase1-auto-reply'
 import { captureContactPreferencesFromInbound } from '@/lib/whatsapp/contact-preferences'
 import {
+  captureCustomerAcquisitionFromInbound,
+  type WhatsAppMessageReferral,
+} from '@/lib/whatsapp/customer-acquisition'
+import {
   handleTemplateWebhookChange,
   isTemplateWebhookField,
 } from '@/lib/whatsapp/template-webhook'
@@ -59,6 +63,8 @@ interface WhatsAppMessage {
   }
   /** Present when the customer swipe-replies to one of our messages. */
   context?: { id: string }
+  /** Present on the first inbound message after a Meta ad/post click. */
+  referral?: WhatsAppMessageReferral
 }
 
 interface WhatsAppWebhookEntry {
@@ -697,6 +703,35 @@ async function processMessage(
     })
   } catch (error) {
     console.error('[contact-preferences] failed to capture inbound preferences:', {
+      contactId: contactRecord.id,
+      conversationId: conversation.id,
+      messageId: message.id,
+      error: error instanceof Error ? error.message : error,
+    })
+  }
+
+  try {
+    const acquisition = await captureCustomerAcquisitionFromInbound({
+      supabase: supabaseAdmin(),
+      accountId,
+      customerId: contactRecord.id,
+      whatsappMessageId: message.id,
+      capturedAt: new Date(parseInt(message.timestamp) * 1000).toISOString(),
+      inboundText: contentText ?? message.text?.body ?? null,
+      referral: message.referral ?? null,
+      isFirstInboundMessage,
+    })
+    if (acquisition.inserted) {
+      console.info('[acquisition] touch recorded', {
+        contactId: contactRecord.id,
+        acquisitionId: acquisition.acquisitionId,
+        whatsappMessageId: message.id,
+        isFirstInboundMessage,
+        hasReferral: Boolean(message.referral),
+      })
+    }
+  } catch (error) {
+    console.error('[acquisition] failed to capture inbound touch:', {
       contactId: contactRecord.id,
       conversationId: conversation.id,
       messageId: message.id,
