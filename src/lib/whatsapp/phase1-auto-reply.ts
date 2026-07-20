@@ -2,6 +2,7 @@ import { format, isValid, parse } from 'date-fns'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { engineSendInteractiveButtons, engineSendInteractiveList, engineSendText } from '@/lib/flows/meta-send'
 import { getLatestGoldRates } from '@/lib/whatsapp/external-gold-rates'
+import { handleWebsiteEnquiryFromInbound } from '@/lib/whatsapp/website-enquiry'
 
 type PreferredLanguage = 'en' | 'hi' | 'gu'
 type ConversationState =
@@ -1085,6 +1086,17 @@ export async function handlePhase1AutoReply(
     inboundMediaMimeType: args.inboundMediaMimeType,
   })
   if (openCustomRequestHandled) return true
+
+  if (!args.interactiveReplyId && args.inboundText?.trim()) {
+    const websiteHandled = await handleWebsiteEnquiryFromInbound({
+      accountId: args.accountId,
+      userId: args.userId,
+      conversationId: args.conversationId,
+      contactId: args.contactId,
+      inboundText: args.inboundText.trim(),
+    })
+    if (websiteHandled) return true
+  }
 
   if (isLanguageButtonReply(args.interactiveReplyId)) {
     const selectedLanguage = languageFromButton(args.interactiveReplyId)

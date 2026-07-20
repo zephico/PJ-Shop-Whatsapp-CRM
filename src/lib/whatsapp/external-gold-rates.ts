@@ -47,7 +47,7 @@ export async function getLatestGoldRates(): Promise<LatestGoldRates> {
   const { data, error } = await client
     .schema('prod')
     .from('store_metal_prices')
-    .select('purity_label, price, unit, created_at')
+    .select('purity_label, price, unit, created_at, metal')
     .in('metal', ['gold', 'silver'])
     .in('purity_label', ['22K', '999'])
     .order('created_at', { ascending: false })
