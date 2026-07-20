@@ -36,7 +36,6 @@ const POST_CUSTOM_BUTTON_IDS = ['POST_CUSTOM_ADD_MORE_DETAILS', 'POST_CUSTOM_MAI
 const POST_GOLD_RATE_BUTTON_IDS = ['POST_GOLD_BROWSE_JEWELLERY', 'POST_GOLD_TALK_TO_EXECUTIVE', 'POST_GOLD_MAIN_MENU'] as const
 const BIRTHDAY_CONSENT_BUTTON_IDS = ['BIRTHDAY_YES', 'BIRTHDAY_MAYBE_LATER', 'BIRTHDAY_NO_THANKS'] as const
 const EXECUTIVE_WAIT_BUTTON_IDS = ['EXECUTIVE_WAIT_VIEW_COLLECTION'] as const
-const MAIN_MENU_TEXT_TOKENS = ['main menu', 'menu', 'mainmenu'] as const
 type BirthdayPromptStatus = 'not_asked' | 'accepted' | 'maybe_later' | 'declined' | 'completed'
 
 interface CustomJewelleryRequestRow {
@@ -650,16 +649,6 @@ async function sendExecutiveFollowup(args: {
   })
 }
 
-function isGreeting(text: string): boolean {
-  const normalized = text.trim().toLowerCase()
-  return ['hi', 'hello', 'hey', 'hii', 'namaste', 'namaskar'].includes(normalized)
-}
-
-function isMainMenuText(text: string): boolean {
-  const normalized = text.trim().toLowerCase()
-  return MAIN_MENU_TEXT_TOKENS.some((token) => normalized === token)
-}
-
 async function sendLanguageSelection(args: {
   accountId: string
   userId: string
@@ -805,6 +794,46 @@ async function sendActionButtons(args: {
     contactId: args.contactId,
     bodyText: args.bodyText,
     buttons: args.buttons,
+  })
+}
+
+/** Any fresh text from a returning customer re-opens the main menu. */
+async function sendReturningUserWelcomeAndMenu(args: {
+  accountId: string
+  userId: string
+  conversationId: string
+  contactId: string
+  language: PreferredLanguage
+  contact: Phase1ContactRow
+}) {
+  logDev('[phase1] returning user fresh text → welcome back + main menu', {
+    conversationId: args.conversationId,
+    contactId: args.contactId,
+    language: args.language,
+  })
+  await updateContactState(args.contactId, args.accountId, {
+    conversation_state: 'FLOW_COMPLETED',
+    last_menu_type: null,
+  })
+  await engineSendText({
+    accountId: args.accountId,
+    userId: args.userId,
+    conversationId: args.conversationId,
+    contactId: args.contactId,
+    text: welcomeBackCopy(args.language),
+  })
+  await sendMainMenu({
+    accountId: args.accountId,
+    userId: args.userId,
+    conversationId: args.conversationId,
+    contactId: args.contactId,
+    language: args.language,
+    contact: {
+      ...args.contact,
+      conversation_state: 'FLOW_COMPLETED',
+      last_menu_type: null,
+    },
+    force: true,
   })
 }
 
@@ -1273,23 +1302,14 @@ export async function handlePhase1AutoReply(
   }
 
   if (conversationState === 'HUMAN_HANDOFF') {
-    if (isMainMenuText(args.inboundText ?? '') || isGreeting(args.inboundText ?? '')) {
-      await updateContactState(args.contactId, args.accountId, {
-        conversation_state: 'MAIN_MENU',
-        last_menu_type: null,
-      })
-      await sendMainMenu({
+    if (!args.interactiveReplyId && args.inboundText?.trim()) {
+      await sendReturningUserWelcomeAndMenu({
         accountId: args.accountId,
         userId: args.userId,
         conversationId: args.conversationId,
         contactId: args.contactId,
         language,
-        contact: {
-          ...contact,
-          conversation_state: 'FLOW_COMPLETED',
-          last_menu_type: null,
-        },
-        force: true,
+        contact,
       })
     }
     return true
@@ -1535,26 +1555,13 @@ export async function handlePhase1AutoReply(
     return true
   }
 
-  if (!isGreeting(inboundText) && !isMainMenuText(inboundText)) return false
-
-  await engineSendText({
-    accountId: args.accountId,
-    userId: args.userId,
-    conversationId: args.conversationId,
-    contactId: args.contactId,
-    text: welcomeBackCopy(preferredLanguage),
-  })
-  await sendMainMenu({
+  await sendReturningUserWelcomeAndMenu({
     accountId: args.accountId,
     userId: args.userId,
     conversationId: args.conversationId,
     contactId: args.contactId,
     language: preferredLanguage,
-    contact: {
-      ...contact,
-      conversation_state: 'FLOW_COMPLETED',
-    },
-    force: true,
+    contact,
   })
   return true
 }
