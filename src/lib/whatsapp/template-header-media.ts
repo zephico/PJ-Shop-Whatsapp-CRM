@@ -56,8 +56,46 @@ export function resolveHeaderMediaUrl(url: string): string {
   return trimmed;
 }
 
+const VIDEO_EXTENSIONS = ['.mp4', '.m4v', '.3gp', '.3gpp'];
+const DOCUMENT_EXTENSIONS = ['.pdf'];
+
+/**
+ * Meta template-creation handles (Resumable Upload `4::…` / `4:…`) are NOT
+ * reusable WhatsApp `/media` ids. Using them makes the send API return 200
+ * but Meta fails delivery seconds later.
+ */
+export function isTemplateCreationMediaHandle(value: string): boolean {
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+  if (trimmed.includes('::')) return true;
+  if (/^4:[A-Za-z0-9_:+-]+/.test(trimmed)) return true;
+  return false;
+}
+
+/** Validate a send-time Meta media id from a prior /media upload. */
+export function validateSendTimeMediaId(id: string): void {
+  const trimmed = id.trim();
+  if (!trimmed) {
+    throw new Error('Header media ID is empty.');
+  }
+  if (isTemplateCreationMediaHandle(trimmed)) {
+    throw new Error(
+      'That value is a template approval handle from Meta, not a send-time media ID. ' +
+        'Leave Header media ID empty and paste a direct HTTPS video link instead.',
+    );
+  }
+}
+
 /** Validate a send-time media URL before it reaches Meta. */
 export function validateHeaderMediaUrl(url: string): void {
+  validateHeaderMediaUrlForType(url, 'image');
+}
+
+/** Validate a send-time media URL for a specific header kind. */
+export function validateHeaderMediaUrlForType(
+  url: string,
+  headerType: MediaHeaderType,
+): void {
   const trimmed = resolveHeaderMediaUrl(url);
   if (!trimmed) {
     throw new Error('Header media URL is required.');
@@ -90,9 +128,40 @@ export function validateHeaderMediaUrl(url: string): void {
   const lower = trimmed.toLowerCase();
   if (lower.includes('/_next/image') || lower.includes('/_next/static/media')) {
     throw new Error(
-      'Do not use Next.js image proxy URLs. Paste the direct image link (e.g. cdn.shopify.com/...jpg) — Meta’s servers cannot fetch _next/image URLs.',
+      'Do not use Next.js image proxy URLs. Paste the direct asset link (e.g. cdn.shopify.com/...mp4) — Meta’s servers cannot fetch _next/image URLs.',
     );
   }
+
+  if (headerType === 'video') {
+    const path = parsed.pathname.toLowerCase();
+    const looksLikeVideo =
+      VIDEO_EXTENSIONS.some((ext) => path.endsWith(ext)) ||
+      path.includes('/video') ||
+      path.includes('.mp4');
+    if (!looksLikeVideo) {
+      throw new Error(
+        'Header video URL must be a direct link to an MP4/3GP file (e.g. …/promo.mp4), not a product or watch page.',
+      );
+    }
+  }
+
+  if (headerType === 'document') {
+    const path = parsed.pathname.toLowerCase();
+    if (!DOCUMENT_EXTENSIONS.some((ext) => path.endsWith(ext))) {
+      throw new Error(
+        'Header document URL must be a direct link to a PDF file.',
+      );
+    }
+  }
+}
+
+/** Best-effort MIME type for a public video header URL. */
+export function inferVideoMimeType(url: string): string {
+  const lower = resolveHeaderMediaUrl(url).toLowerCase();
+  if (lower.endsWith('.3gp') || lower.endsWith('.3gpp')) {
+    return 'video/3gpp';
+  }
+  return 'video/mp4';
 }
 
 export function mediaHeaderFieldLabel(headerType: MediaHeaderType): string {

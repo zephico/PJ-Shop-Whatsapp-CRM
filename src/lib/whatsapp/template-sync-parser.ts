@@ -22,6 +22,7 @@ export interface MetaSyncComponent {
   example?: {
     header_text?: string[];
     header_handle?: string[];
+    header_url?: string[];
     body_text?: string[][];
   };
 }

@@ -1,8 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
   headerMediaRequiredError,
+  inferVideoMimeType,
+  isTemplateCreationMediaHandle,
   resolveHeaderMediaUrl,
   validateHeaderMediaUrl,
+  validateHeaderMediaUrlForType,
+  validateSendTimeMediaId,
 } from './template-header-media';
 
 describe('headerMediaRequiredError', () => {
@@ -44,6 +48,57 @@ describe('validateHeaderMediaUrl', () => {
   it('rejects bare Next.js proxy without inner url', () => {
     expect(() =>
       validateHeaderMediaUrl('https://shop.example/_next/image?w=1080'),
-    ).toThrow(/direct image link/i);
+    ).toThrow(/direct asset link/i);
+  });
+});
+
+describe('validateHeaderMediaUrlForType', () => {
+  it('requires a direct mp4 link for video headers', () => {
+    expect(() =>
+      validateHeaderMediaUrlForType(
+        'https://pradeepjewellers.in/products/pendant',
+        'video',
+      ),
+    ).toThrow(/direct link to an MP4/i);
+  });
+
+  it('accepts a direct mp4 link for video headers', () => {
+    expect(() =>
+      validateHeaderMediaUrlForType(
+        'https://cdn.shopify.com/videos/promo.mp4',
+        'video',
+      ),
+    ).not.toThrow();
+  });
+});
+
+describe('validateSendTimeMediaId', () => {
+  it('rejects template approval handles', () => {
+    expect(() => validateSendTimeMediaId('4::aW1hZ2U')).toThrow(
+      /approval handle/i,
+    );
+    expect(() => validateSendTimeMediaId('4:PHAsset:abc123')).toThrow(
+      /approval handle/i,
+    );
+  });
+
+  it('allows numeric ids from a prior /media upload', () => {
+    expect(() => validateSendTimeMediaId('4083134695150757')).not.toThrow();
+  });
+});
+
+describe('isTemplateCreationMediaHandle', () => {
+  it('detects resumable handle prefixes', () => {
+    expect(isTemplateCreationMediaHandle('4::abc')).toBe(true);
+    expect(isTemplateCreationMediaHandle('4:PHAsset:abc')).toBe(true);
+    expect(isTemplateCreationMediaHandle('4083134695150757')).toBe(false);
+  });
+});
+
+describe('inferVideoMimeType', () => {
+  it('defaults to mp4', () => {
+    expect(inferVideoMimeType('https://cdn.example.com/a.mp4')).toBe(
+      'video/mp4',
+    );
   });
 });

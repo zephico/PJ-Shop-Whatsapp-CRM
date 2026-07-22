@@ -1137,6 +1137,77 @@ function validateInteractiveHeaderFooter(
 // Media
 // ============================================================
 
+const WHATSAPP_VIDEO_MAX_BYTES = 16 * 1024 * 1024;
+
+export interface UploadWhatsAppMediaFromUrlArgs {
+  phoneNumberId: string;
+  accessToken: string;
+  url: string;
+  mimeType: string;
+  maxBytes?: number;
+}
+
+function filenameFromMediaUrl(url: string, fallback: string): string {
+  try {
+    const name = new URL(url).pathname.split('/').pop()?.trim();
+    if (name) return name;
+  } catch {
+    // fall through
+  }
+  return fallback;
+}
+
+/**
+ * Fetch a public asset and upload it to Meta's phone-number media store.
+ * Returns a reusable media id for template header `{ id }` parameters.
+ * More reliable than `{ link }` for video headers when Meta struggles to
+ * fetch the URL directly (redirects, content-type quirks, etc.).
+ */
+export async function uploadWhatsAppMediaFromUrl(
+  args: UploadWhatsAppMediaFromUrlArgs,
+): Promise<{ id: string }> {
+  const { phoneNumberId, accessToken, url, mimeType } = args;
+  const maxBytes = args.maxBytes ?? WHATSAPP_VIDEO_MAX_BYTES;
+
+  const download = await fetch(url);
+  if (!download.ok) {
+    throw new Error(
+      `Could not download header media (${download.status}). Use a direct public HTTPS link to the video file.`,
+    );
+  }
+
+  const buffer = Buffer.from(await download.arrayBuffer());
+  if (buffer.byteLength > maxBytes) {
+    throw new Error(
+      `Header media is ${Math.round(buffer.byteLength / (1024 * 1024))} MB — Meta's limit is ${Math.round(maxBytes / (1024 * 1024))} MB.`,
+    );
+  }
+
+  const form = new FormData();
+  form.append('messaging_product', 'whatsapp');
+  form.append('type', mimeType);
+  form.append(
+    'file',
+    new Blob([buffer], { type: mimeType }),
+    filenameFromMediaUrl(url, mimeType.includes('pdf') ? 'document.pdf' : 'header.mp4'),
+  );
+
+  const uploadRes = await fetch(`${META_API_BASE}/${phoneNumberId}/media`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${accessToken}` },
+    body: form,
+  });
+  if (!uploadRes.ok) {
+    await throwMetaError(uploadRes, `Media upload failed: ${uploadRes.status}`);
+  }
+
+  const data = (await uploadRes.json()) as { id?: string };
+  if (!data.id) {
+    throw new Error('Media upload did not return an id from Meta.');
+  }
+  return { id: data.id };
+}
+
 export interface GetMediaUrlArgs {
   mediaId: string
   accessToken: string

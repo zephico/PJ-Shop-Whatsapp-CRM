@@ -31,7 +31,8 @@ import {
   mediaHeaderFieldLabel,
   mediaHeaderFieldPlaceholder,
   resolveHeaderMediaUrl,
-  validateHeaderMediaUrl,
+  validateHeaderMediaUrlForType,
+  validateSendTimeMediaId,
 } from "@/lib/whatsapp/template-header-media";
 
 export interface TemplateSendValues {
@@ -106,11 +107,18 @@ function isHeaderMediaUrlValid(
   headerMediaId: string,
 ): boolean {
   if (!mediaHeaderType) return true;
-  if (headerMediaId.trim()) return true;
+  if (headerMediaId.trim()) {
+    try {
+      validateSendTimeMediaId(headerMediaId);
+      return true;
+    } catch {
+      return false;
+    }
+  }
   const url = headerMediaUrl.trim();
   if (!url) return false;
   try {
-    validateHeaderMediaUrl(url);
+    validateHeaderMediaUrlForType(url, mediaHeaderType);
     return true;
   } catch {
     return false;
@@ -131,6 +139,9 @@ export function TemplatePicker({
   const [headerMediaId, setHeaderMediaId] = useState<string>("");
   const [buttonParams, setButtonParams] = useState<Record<number, string>>({});
   const [headerMediaError, setHeaderMediaError] = useState<string | null>(null);
+  const [headerMediaIdError, setHeaderMediaIdError] = useState<string | null>(
+    null,
+  );
 
   useEffect(() => {
     if (!open) return;
@@ -196,6 +207,7 @@ export function TemplatePicker({
     setHeaderMediaId("");
     setButtonParams({});
     setHeaderMediaError(null);
+    setHeaderMediaIdError(null);
   }
 
   function handleOpenChange(next: boolean) {
@@ -219,6 +231,7 @@ export function TemplatePicker({
     setHeaderMediaId("");
     setButtonParams({});
     setHeaderMediaError(null);
+    setHeaderMediaIdError(null);
   }
 
   function confirm() {
@@ -255,7 +268,8 @@ export function TemplatePicker({
       headerMediaUrl,
       headerMediaId,
     ) &&
-    !headerMediaError;
+    !headerMediaError &&
+    !headerMediaIdError;
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -361,7 +375,10 @@ export function TemplatePicker({
                         return;
                       }
                       try {
-                        validateHeaderMediaUrl(value);
+                        validateHeaderMediaUrlForType(
+                          value,
+                          slots.mediaHeaderType!,
+                        );
                         setHeaderMediaError(null);
                       } catch (err) {
                         setHeaderMediaError(
@@ -376,11 +393,18 @@ export function TemplatePicker({
                     <p className="text-[10px] text-red-400">{headerMediaError}</p>
                   ) : (
                     <p className="text-[10px] text-muted-foreground">
-                      Public HTTPS URL required. Meta cannot fetch localhost or
-                      private links.
+                      {slots.mediaHeaderType === "video"
+                        ? "Direct MP4/3GP link required (e.g. cdn.shopify.com/…/video.mp4). Product pages and YouTube links will fail."
+                        : "Public HTTPS URL required. Meta cannot fetch localhost or private links."}
                     </p>
                   )}
                 </div>
+                {selected?.header_handle && !headerMediaUrl.trim() && (
+                  <p className="text-[10px] text-amber-400">
+                    Synced templates only store Meta&apos;s approval handle — paste
+                    the direct video file URL here every time you send.
+                  </p>
+                )}
                 {slots.mediaHeaderType === "image" && headerMediaUrl.trim() && !headerMediaError && (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
@@ -391,14 +415,32 @@ export function TemplatePicker({
                 )}
                 <div className="space-y-1">
                   <Label className="text-xs text-muted-foreground">
-                    Header media ID (optional)
+                    Header media ID (optional — rarely needed)
                   </Label>
                   <Input
                     value={headerMediaId}
-                    onChange={(e) => setHeaderMediaId(e.target.value)}
-                    placeholder="Meta media id from a prior upload"
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      setHeaderMediaId(value);
+                      if (!value.trim()) {
+                        setHeaderMediaIdError(null);
+                        return;
+                      }
+                      try {
+                        validateSendTimeMediaId(value);
+                        setHeaderMediaIdError(null);
+                      } catch (err) {
+                        setHeaderMediaIdError(
+                          err instanceof Error ? err.message : "Invalid media ID",
+                        );
+                      }
+                    }}
+                    placeholder="Leave empty — use the video URL above"
                     className="border-border bg-muted text-foreground placeholder:text-muted-foreground"
                   />
+                  {headerMediaIdError ? (
+                    <p className="text-[10px] text-red-400">{headerMediaIdError}</p>
+                  ) : null}
                 </div>
               </div>
             )}

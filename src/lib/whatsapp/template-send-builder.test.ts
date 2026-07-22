@@ -164,6 +164,19 @@ describe('buildSendComponents — header', () => {
       }),
     ).toThrow(/publicly reachable/);
   });
+
+  it('rejects template approval handles masquerading as media ids', () => {
+    expect(() =>
+      buildSendComponents(
+        row({
+          header_type: 'video',
+          header_media_url: 'https://x.com/a.mp4',
+          header_handle: '4083134695150757',
+        }),
+        { headerMediaId: '4083134695150757' },
+      ),
+    ).toThrow(/approval handle/i);
+  });
 });
 
 describe('buildSendComponents — buttons', () => {
