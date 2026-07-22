@@ -136,22 +136,33 @@ export async function POST(request: Request) {
       )
     }
 
-    // Fetch conversation and contact
+    // Fetch conversation and contact. Use the explicit FK hint — the
+    // inbox uses the same embed (issue #294 / stale PostgREST cache).
+    // Ambiguous `contact:contacts(*)` can fail the whole query even
+    // when the conversation row exists and is visible in the UI.
     const { data: conversation, error: convError } = await supabase
       .from('conversations')
-      .select('*, contact:contacts(*)')
+      .select('*, contact:contacts!conversations_contact_id_fkey(*)')
       .eq('id', conversation_id)
       .eq('account_id', accountId)
-      .single()
+      .maybeSingle()
 
     if (convError || !conversation) {
+      console.error('[whatsapp/send] conversation lookup failed:', {
+        conversation_id,
+        accountId,
+        code: convError?.code,
+        message: convError?.message,
+        details: convError?.details,
+      })
       return NextResponse.json(
         { error: 'Conversation not found' },
         { status: 404 }
       )
     }
 
-    const contact = conversation.contact
+    const contactRow = conversation.contact
+    const contact = Array.isArray(contactRow) ? contactRow[0] : contactRow
     if (!contact?.phone) {
       return NextResponse.json(
         { error: 'Contact phone number not found' },
