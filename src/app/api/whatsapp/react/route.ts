@@ -86,12 +86,21 @@ export async function POST(request: Request) {
 
     const { data: conversation, error: convError } = await supabase
       .from('conversations')
-      .select('id, account_id, contact:contacts(phone)')
+      .select(
+        'id, account_id, contact:contacts!conversations_contact_id_fkey(phone)',
+      )
       .eq('id', targetMessage.conversation_id)
       .eq('account_id', accountId)
       .maybeSingle();
 
     if (convError || !conversation) {
+      console.error('[whatsapp/react] conversation lookup failed:', {
+        conversation_id: targetMessage.conversation_id,
+        accountId,
+        code: convError?.code,
+        message: convError?.message,
+        details: convError?.details,
+      });
       return NextResponse.json(
         { error: 'Conversation not found' },
         { status: 404 },
