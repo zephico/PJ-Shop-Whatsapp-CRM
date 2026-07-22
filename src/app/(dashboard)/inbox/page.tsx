@@ -262,9 +262,20 @@ export default function InboxPage() {
       }
 
       if (event.eventType === "UPDATE") {
+        if (
+          newMsg.status === "failed" &&
+          newMsg.sender_type === "agent" &&
+          activeConversation &&
+          newMsg.conversation_id === activeConversation.id
+        ) {
+          toast.error(
+            "WhatsApp could not deliver this message. For video templates, use a direct MP4 link — not a product page or Meta approval handle.",
+            { duration: 12000 },
+          );
+        }
         // Update message status
         setMessages((prev) =>
-          prev.map((m) => (m.id === newMsg.id ? { ...m, ...newMsg } : m))
+          prev.map((m) => (m.id === newMsg.id ? { ...m, ...newMsg } : m)),
         );
       }
     },

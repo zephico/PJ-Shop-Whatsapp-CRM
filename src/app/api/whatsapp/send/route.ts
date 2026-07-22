@@ -4,6 +4,7 @@ import {
   sendTextMessage,
   sendTemplateMessage,
   sendMediaMessage,
+  uploadWhatsAppMediaFromUrl,
   type MediaKind,
 } from '@/lib/whatsapp/meta-api'
 import { decrypt, encrypt, isLegacyFormat } from '@/lib/whatsapp/encryption'
@@ -24,6 +25,13 @@ import { isMessageTemplate } from '@/lib/whatsapp/template-row-guard'
 import { buildSendComponents } from '@/lib/whatsapp/template-send-builder'
 import { extractVariableIndices } from '@/lib/whatsapp/template-validators'
 import { formatMetaApiError } from '@/lib/whatsapp/meta-send-errors'
+import {
+  inferVideoMimeType,
+  isMediaHeaderType,
+  resolveHeaderMediaUrl,
+  validateSendTimeMediaId,
+} from '@/lib/whatsapp/template-header-media'
+import type { SendTimeParams } from '@/lib/whatsapp/template-send-builder'
 
 export async function POST(request: Request) {
   try {
@@ -265,6 +273,8 @@ export async function POST(request: Request) {
     // guards against a malformed row (e.g. from a partial sync)
     // crashing the send-builder later in the stack.
     let templateRow: MessageTemplate | null = null
+    let resolvedTemplateMessageParams: SendTimeParams | undefined =
+      template_message_params
     if (message_type === 'template' && template_name) {
       const { data } = await supabase
         .from('message_templates')
@@ -323,12 +333,45 @@ export async function POST(request: Request) {
       }
 
       try {
+        if (isMediaHeaderType(templateRow.header_type)) {
+          if (resolvedTemplateMessageParams?.headerMediaId?.trim()) {
+            validateSendTimeMediaId(resolvedTemplateMessageParams.headerMediaId)
+          }
+
+          const rawLink =
+            resolvedTemplateMessageParams?.headerMediaUrl?.trim() ||
+            templateRow.header_media_url?.trim() ||
+            ''
+          const link = rawLink ? resolveHeaderMediaUrl(rawLink) : ''
+
+          // Video headers fail delivery when Meta cannot fetch the URL.
+          // Upload the bytes to Meta first and send by media id instead.
+          if (
+            templateRow.header_type === 'video' &&
+            link &&
+            !resolvedTemplateMessageParams?.headerMediaId?.trim()
+          ) {
+            const { id } = await uploadWhatsAppMediaFromUrl({
+              phoneNumberId: config.phone_number_id,
+              accessToken,
+              url: link,
+              mimeType: inferVideoMimeType(link),
+            })
+            resolvedTemplateMessageParams = {
+              ...(resolvedTemplateMessageParams ?? {}),
+              body: bodyParams,
+              headerMediaId: id,
+              headerMediaUrl: undefined,
+            }
+          }
+        }
+
         buildSendComponents(templateRow, {
           body: bodyParams,
-          headerText: template_message_params?.headerText,
-          headerMediaUrl: template_message_params?.headerMediaUrl,
-          headerMediaId: template_message_params?.headerMediaId,
-          buttonParams: template_message_params?.buttonParams,
+          headerText: resolvedTemplateMessageParams?.headerText,
+          headerMediaUrl: resolvedTemplateMessageParams?.headerMediaUrl,
+          headerMediaId: resolvedTemplateMessageParams?.headerMediaId,
+          buttonParams: resolvedTemplateMessageParams?.buttonParams,
         })
       } catch (buildErr) {
         const msg =
@@ -346,7 +389,7 @@ export async function POST(request: Request) {
           templateName: template_name,
           language: template_language || 'en_US',
           template: templateRow ?? undefined,
-          messageParams: template_message_params ?? undefined,
+          messageParams: resolvedTemplateMessageParams ?? undefined,
           // Legacy body-only fallback — only consulted when
           // messageParams.body isn't set.
           params: template_params || [],

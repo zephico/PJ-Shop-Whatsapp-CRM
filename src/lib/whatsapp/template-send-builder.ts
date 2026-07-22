@@ -35,7 +35,8 @@ import { extractVariableIndices } from './template-validators';
 import {
   headerMediaRequiredError,
   resolveHeaderMediaUrl,
-  validateHeaderMediaUrl,
+  validateHeaderMediaUrlForType,
+  validateSendTimeMediaId,
 } from './template-header-media';
 
 export interface SendTimeParams {
@@ -121,8 +122,17 @@ function buildHeaderComponent(
   if (!link?.trim() && !id) {
     throw new Error(headerMediaRequiredError(headerType));
   }
+  if (id) {
+    validateSendTimeMediaId(id);
+    if (template.header_handle?.trim() === id) {
+      throw new Error(
+        'That media ID is the template approval handle from Meta sync — it cannot be reused at send time. ' +
+          'Leave Header media ID empty and paste a direct HTTPS video link instead.',
+      );
+    }
+  }
   if (link?.trim() && !id) {
-    validateHeaderMediaUrl(link);
+    validateHeaderMediaUrlForType(link, headerType);
   }
   const mediaPayload: { link?: string; id?: string } = id
     ? { id }

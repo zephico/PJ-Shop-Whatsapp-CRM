@@ -195,6 +195,8 @@ export async function POST() {
           ? headerFormat.toLowerCase()
           : null
 
+      const syncedHeaderUrl = header?.example?.header_url?.[0]?.trim() ?? null
+
       const row = {
         // Account tenancy + user audit, same split as the submit
         // route. account_id is NOT NULL on message_templates
@@ -207,6 +209,7 @@ export async function POST() {
         header_type: headerType,
         header_content: header?.text ?? null,
         header_handle: header?.example?.header_handle?.[0] ?? null,
+        ...(syncedHeaderUrl ? { header_media_url: syncedHeaderUrl } : {}),
         body_text: body?.text ?? '',
         footer_text: footer?.text ?? null,
         buttons: parsedButtons.length ? parsedButtons : null,
